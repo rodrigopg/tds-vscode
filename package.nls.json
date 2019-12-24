@@ -6,6 +6,7 @@
 	"tds.package.show.welcome.first.initialize": "Show Welcome Page in First Initialize",
 	"tds.package.show.ask.encoding": "Ask for change encoding for Windows-1252",
 	"tds.package.show.ask.compile.result": "Ask for show table with compile results",
+	"tds.package.show.clear.console.before.compile": "Clear console before compile",
 	"tds.package.reconnectLastServer": "Reconnect last connected server on startup.",
 	"tds.package.useReconnectionToken": "Use reconnection token to login.",
 	"tds.package.generate.ppo": "Generate PPO file.",
@@ -100,5 +101,6 @@
 	"tds.package.editor.toggle.autocomplete": "Toggle Autocomplete Behavior.",
     "tds.package.editor.toggle.autocomplete.basic": "Standard VS Cdoe procedure.",
 	"tds.package.editor.toggle.autocomplete.ls": "Search in the Language Server of the current environment.",
-	"tds.command.debug.toggleTableSync": "Toggle table sync"
+	"tds.command.debug.toggleTableSync": "Toggle table sync",
+	"tds.package.extensions_folder_patch": "Lista de extensões permitidas para compilar via pasta"
 }

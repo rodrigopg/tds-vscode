@@ -110,11 +110,10 @@ export class FormattingRules {
 				increment: true,
 				decrement: true,
 				reset: false
-			},
-			{
+			}, {
 				id: '#endif',
 				expression: /^(\s*)(#)(\s*)(endif)/i,
-				increment: true,
+				increment: false,
 				decrement: true,
 				reset: false
 			}, {
@@ -182,7 +181,15 @@ export class FormattingRules {
 				increment: true,
 				decrement: false,
 				reset: false,
-				subrules: new SqlFormattingRules()
+				ignore_at: 'endsql'
+				// subrules: new SqlFormattingRules()
+			},
+			{
+				id: 'endsql',
+				expression: /^(\s*)(endsql)/i,
+				increment: false,
+				decrement: true,
+				reset: false
 			},
 			{
 				id: 'do case',
@@ -384,6 +391,11 @@ export class FormattingRules {
 	}
 }
 
+/*
+Motor comentado para issue: https://github.com/totvs/tds-vscode/issues/214
+Todo conteudo entre o BeginSql e o EndSql será ignorado, pemitindo ao
+analista manter sua formatação de preferencia
+
 class ResetFormattingRules extends FormattingRules {
 	protected getRulesExpressions(): IndentationRule[] {
 		return [];
@@ -456,3 +468,4 @@ class SqlFormattingRules extends FormattingRules {
 		}];
 	}
 }
+*/

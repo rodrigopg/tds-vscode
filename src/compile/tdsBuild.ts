@@ -46,9 +46,13 @@ export function buildFile(filename: string[], recompile: boolean, context: vscod
  * Build a file list.
  */
 async function buildCode(filesPaths: string[], compileOptions: CompileOptions, context: vscode.ExtensionContext) {
-	const includes: Array<string> = utils.getIncludes(true) || [];
-	if (!includes.toString()) {
-		return;
+
+	const server = utils.getCurrentServer();
+
+	const configADVPL = vscode.workspace.getConfiguration('totvsLanguageServer');
+	const shouldClearConsole = configADVPL.get("clearConsoleBeforeCompile");
+	if (shouldClearConsole !== false) {
+		languageClient.outputChannel.clear();
 	}
 
 	const resourcesToConfirm: vscode.TextDocument[] = vscode.workspace.textDocuments.filter(d => !d.isUntitled && d.isDirty);
@@ -62,9 +66,14 @@ async function buildCode(filesPaths: string[], compileOptions: CompileOptions, c
 		vscode.window.showWarningMessage(localize("tds.webview.tdsBuild.saved", 'Files saved successfully.'));
 	}
 
-	const server = utils.getCurrentServer();
-
 	if (server) {
+		//Só faz sentido processar os includes se existir um servidor selecionado onde sera compilado.
+		let serverItem = utils.getServerForID(server.id);
+		const includes: Array<string> = utils.getIncludes(true, serverItem) || [];
+		if (!includes.toString()) {
+			return;
+		}
+
 		const permissionsInfos = Utils.getPermissionsInfos();
 		let includesUris: Array<string> = [];
 		for (let idx = 0; idx < includes.length; idx++) {
@@ -88,11 +97,26 @@ async function buildCode(filesPaths: string[], compileOptions: CompileOptions, c
 				"compileOptions": compileOptions
 			}
 		}).then((response: CompileResult) => {
-			if (response.returnCode == 40840) {
+			if (response.returnCode === 40840) {
 				Utils.removeExpiredAuthorization();
 			}
-			if(response.compileInfos.length > 1){
-				verifyCompileResult(response, context);
+			if (response.compileInfos.length > 0) {
+				// Exibe aba problems casa haja pelo menos um erro ou warning
+				let showProblems = false;
+				for (let index = 0; index < response.compileInfos.length; index++) {
+					const compileInfo = response.compileInfos[index];
+					if (compileInfo.status === "FATAL" || compileInfo.status === "ERROR" || compileInfo.status === "WARN") {
+						showProblems = true;
+						break;
+					}
+				}
+				if (showProblems) {
+					// focus
+					vscode.commands.executeCommand("workbench.action.problems.focus");
+				}
+				if (context !== undefined) {
+					verifyCompileResult(response, context);
+				}
 			}
 		}, (err) => {
 			vscode.window.showErrorMessage(err);
@@ -111,8 +135,8 @@ function verifyCompileResult(response, context){
 	let questionAgain = true;
 
 	const configADVPL = vscode.workspace.getConfiguration('totvsLanguageServer');
-	const questionEncodingConfig = configADVPL.get("askCompileResult");
-	if (questionEncodingConfig !== false) {
+	const askCompileResult = configADVPL.get("askCompileResult");
+	if (askCompileResult !== false) {
 		vscode.window.showInformationMessage(textQuestion, textYes, textNo, textNoAsk).then(clicked => {
 			if (clicked === textYes) {
 				showCompileResult(response.compileInfos, context);
@@ -134,13 +158,14 @@ export function commandBuildFile(context, recompile: boolean, files) {
 			return;
 		}
 		filename = editor.document.uri.fsPath;
+		recompile = true;
 	}
 	if (files) {
 		const arrayFiles: string[] = changeToArrayString(files);
-		var allFiles = Utils.getAllFilesRecursive(arrayFiles);
+		let allFiles = Utils.getAllFilesRecursive(arrayFiles);
 		buildFile(allFiles, recompile, context);
 	} else {
-		if (filename != undefined) {
+		if (filename !== undefined) {
 			buildFile([filename], recompile, context);
 		}
 	}
@@ -171,7 +196,7 @@ export function commandBuildWorkspace(recompile: boolean, context: vscode.Extens
 			folders.push(value.uri.fsPath);
 		});
 
-		var allFiles = Utils.getAllFilesRecursive(folders);
+		let allFiles = Utils.getAllFilesRecursive(folders);
 
 		buildFile(allFiles, recompile, context);
 	}
@@ -189,7 +214,7 @@ export async function commandBuildOpenEditors(recompile: boolean, context: vscod
 	}
 	if (editor.viewColumn) {
 		filename = editor.document.uri.fsPath;
-		if (files.indexOf(filename) == -1) {
+		if (files.indexOf(filename) === -1) {
 			files.push(filename);
 		}
 	}
@@ -200,7 +225,7 @@ export async function commandBuildOpenEditors(recompile: boolean, context: vscod
 		if (editor) {
 			if (editor.viewColumn) {
 				filename = editor.document.uri.fsPath;
-				if (files.indexOf(filename) == -1) {
+				if (files.indexOf(filename) === -1) {
 					files.push(filename);
 				}
 			}
@@ -216,7 +241,7 @@ export async function commandBuildOpenEditors(recompile: boolean, context: vscod
 		if (nextEditor && !sameEditor(editor as vscode.TextEditor, nextEditor as vscode.TextEditor)) {
 			if (nextEditor.viewColumn) {
 				filename = nextEditor.document.uri.fsPath;
-				if (files.indexOf(filename) == -1) {
+				if (files.indexOf(filename) === -1) {
 					files.push(filename);
 				}
 			}
@@ -242,7 +267,13 @@ function delay(ms: number) {
 }
 
 function sameEditor(editor: vscode.TextEditor, nextEditor: vscode.TextEditor) {
-	if (editor === undefined && nextEditor === undefined) return true;
-	if (editor === undefined || nextEditor === undefined) return false;
+	if (editor === undefined && nextEditor === undefined) {
+		return true;
+	}
+
+	if (editor === undefined || nextEditor === undefined) {
+		return false;
+	}
+
 	return (editor.viewColumn === nextEditor.viewColumn) && ((editor as any)._id === (nextEditor as any)._id);
 }

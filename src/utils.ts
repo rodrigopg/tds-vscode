@@ -314,25 +314,38 @@ export default class Utils {
 	/**
 	 * Cria uma nova configuracao de servidor no servers.json
 	 */
-	static createNewServer(typeServer, serverName, port, address, buildVersion, secure): string | undefined {
+	static createNewServer(typeServer, serverName, port, address, buildVersion, secure, includes): string | undefined {
 		Utils.createServerConfig();
 		const serverConfig = Utils.getServersConfig();
 
 		if (serverConfig.configurations) {
 			const servers = serverConfig.configurations;
-			const serverId: string = Utils.generateRandomID();
-			servers.push({
-				id: serverId,
-				type: typeServer,
-				name: serverName,
-				port: parseInt(port),
-				address: address,
-				secure: parseInt(secure),
-				buildVersion: buildVersion
-			});
 
-			Utils.persistServersInfo(serverConfig);
-			return serverId;
+			if (servers.find(element => { return element.name === serverName; })) {
+				vscode.window.showErrorMessage(localize("tds.webview.serversView.serverNameDuplicated", "Server name already exists"));
+				return undefined;
+			} else {
+				let validate_includes: string[] = [];
+				includes.forEach(element => {
+					if (element !== undefined && element.length > 0) {
+						validate_includes.push(element);
+					}
+				});
+				const serverId: string = Utils.generateRandomID();
+				servers.push({
+					id: serverId,
+					type: typeServer,
+					name: serverName,
+					port: parseInt(port),
+					address: address,
+					buildVersion: buildVersion,
+					secure: secure,
+					includes: validate_includes
+				});
+
+				Utils.persistServersInfo(serverConfig);
+				return serverId;
+			}
 		}
 		return undefined;
 	}
@@ -378,9 +391,14 @@ export default class Utils {
 	/**
 	 * Recupera a lista de includes do arquivod servers.json
 	 */
-	static getIncludes(absolutePath: boolean = false): Array<string> {
-		const servers = Utils.getServersConfig();
-		const includes: Array<string> = servers.includes as Array<string>;
+	static getIncludes(absolutePath: boolean = false, server: any = undefined): Array<string> {
+		let includes: Array<string>;
+		if(server !== undefined && server.includes !== undefined && server.includes.length > 0) {
+			includes = server.includes as Array<string>;
+		} else {
+			const servers = Utils.getServersConfig();
+			includes = servers.includes as Array<string>;
+		}
 
 		if (includes.toString()) {
 			if (absolutePath) {
@@ -490,8 +508,7 @@ export default class Utils {
 						console.error(err);
 					}
 				});
-			};
-
+			}
 		}
 	}
 	/**
@@ -672,7 +689,7 @@ export default class Utils {
 				break;
 			case MESSAGETYPE.Log:
 				let time = Utils.timeAsHHMMSS(new Date());
-				languageClient !== undefined ? languageClient.outputChannel.appendLine("[Log   + "+time+"] " + message) : console.log(message);
+				languageClient !== undefined ? languageClient.outputChannel.appendLine("[Log   + " + time + "] " + message) : console.log(message);
 				if (showDialog && notificationLevel === "all") {
 					vscode.window.showInformationMessage(message);
 				}
@@ -682,14 +699,14 @@ export default class Utils {
 
 	static timeAsHHMMSS(date): string {
 		return Utils.leftpad(date.getHours(), 2)
-				  + ':' + Utils.leftpad(date.getMinutes(), 2)
-				  + ':' + Utils.leftpad(date.getSeconds(), 2);
-	  }
+			+ ':' + Utils.leftpad(date.getMinutes(), 2)
+			+ ':' + Utils.leftpad(date.getSeconds(), 2);
+	}
 
 	static leftpad(val, resultLength = 2, leftpadChar = '0'): string {
 		return (String(leftpadChar).repeat(resultLength)
-		  + String(val)).slice(String(val).length);
-	 }
+			+ String(val)).slice(String(val).length);
+	}
 
 	static getAllFilesRecursive(folders: Array<string>): string[] {
 		const files: string[] = [];
