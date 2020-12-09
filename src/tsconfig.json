@@ -4,25 +4,23 @@
         "target": "ES6",
         "outDir": "../out",
         "sourceMap": true,
-
         "noImplicitAny": false,
-        "removeComments": false,
+        "removeComments": true,
         "noUnusedLocals": false,
         "noImplicitThis": true,
         "noFallthroughCasesInSwitch": true,
         "noImplicitReturns": false,
-
+        "allowJs": true,
         "lib": [
             "es2015",
             "dom"
         ],
-
         "jsx": "react",
-
         "declaration": true,
         "declarationMap": true,
-        "strict": false,   /* enable all strict type-checking options */
-        "noUnusedParameters": false
+        "strict": false, /* enable all strict type-checking options */
+        "noUnusedParameters": false,
+        "resolveJsonModule": true,
     },
     "exclude": [
         "node_modules/",

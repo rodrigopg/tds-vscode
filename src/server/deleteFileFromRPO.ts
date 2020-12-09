@@ -1,13 +1,14 @@
-import vscode = require('vscode');
+import * as vscode from 'vscode';
 import { languageClient } from '../extension';
-import path = require('path');
-import fs = require('fs');
+import * as path from 'path';
+import * as fs from 'fs';
 import { extensions, window, Uri, ViewColumn } from 'vscode';
 import * as nls from 'vscode-nls';
 import Utils from '../utils';
 import { ResponseError } from 'vscode-languageclient';
+import { _debugEvent } from '../debug';
 
-let localize = nls.config({ locale: 'en' })();
+let localize = nls.loadMessageBundle();
 const compile = require('template-literal');
 
 const localizeHTML = {
@@ -17,7 +18,7 @@ const localizeHTML = {
 	"tds.webview.deleteFile.line3": localize("tds.webview.deleteFile.line3", "Select source/recourse with rigth mouse buttom"),
 	"tds.webview.deleteFile.line4": localize("tds.webview.deleteFile.line4", "Select the option 'Delete source/resource from RPO' on popup menu"),
 	"tds.webview.deleteFile.line5": localize("tds.webview.deleteFile.line5", "Confirm file deletion selecting the option 'YES' in the form displayed on the bottom right corner.")
-}
+};
 
 export function deleteFileFromRPO(context: any, selectedFiles): void {
 	const files = changeToArrayString(selectedFiles);
@@ -91,22 +92,26 @@ export function deletePrograms(programs: string[]) {
 	const server = Utils.getCurrentServer();
 	try {
 		if (server) {
+			if (_debugEvent) {
+				vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
+				return;
+			}
 			//vscode.window.showInformationMessage("Compilação iniciada");
 			const permissionsInfos = Utils.getPermissionsInfos();
 
 			languageClient.sendRequest('$totvsserver/deletePrograms', {
 				"deleteProgramsInfo": {
-					"connectionToken": server.token,
-					"authorizationToken": permissionsInfos.authorizationToken,
-					"environment": server.environment,
-					"programs": programs
+					connectionToken: server.token,
+					authorizationToken: permissionsInfos ? permissionsInfos.authorizationToken : "",
+					environment: server.environment,
+					programs: programs
 				}
 			}).then((response: DeleteProgramResult) => {
-				if (response.returnCode == 40840) { // AuthorizationTokenExpiredError
+				if (response.returnCode === 40840) { // AuthorizationTokenExpiredError
 					Utils.removeExpiredAuthorization();
 				}
 				// const message: string  = response.message;
-				// if(message == "Success"){
+				// if(message === "Success"){
 				// 	vscode.window.showInformationMessage("Program " + path.basename(filename) + " deleted succesfully from RPO!");
 				// }else {
 				// 	vscode.window.showErrorMessage(message);

@@ -1,24 +1,40 @@
-import Utils from '../utils';
-import { languageClient, localize } from '../extension';
-import * as vscode from 'vscode';
-import { ResponseError } from 'vscode-languageclient';
+import Utils from "../utils";
+import { languageClient } from "../extension";
+import * as vscode from "vscode";
+import { ResponseError } from "vscode-languageclient";
+import * as nls from "vscode-nls";
+import { _debugEvent } from "../debug";
+
+const localize = nls.loadMessageBundle();
 
 export function defragRpo() {
-	const server = Utils.getCurrentServer();
+  const server = Utils.getCurrentServer();
 
-	if (server) {
-		languageClient.sendRequest('$totvsserver/defragRpo', {
-			"defragRpoInfo": {
-				"connectionToken": server.token,
-				"environment": server.environment,
-				"packPatchInfo": true
-			}
-		}).then((response: any) => {
-			// Nothing to do
-		}, (err: ResponseError<object>) => {
-			vscode.window.showErrorMessage(err.message);
-		});
-	} else {
-		vscode.window.showErrorMessage(localize('tds.vscode.servernotconnected', 'There is no server connected'));
-	}
+  if (server) {
+    if (_debugEvent) {
+      vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
+      return;
+    }
+    const exec: Thenable<any> = languageClient
+      .sendRequest("$totvsserver/defragRpo", {
+        defragRpoInfo: {
+          connectionToken: server.token,
+          environment: server.environment,
+          packPatchInfo: true,
+        },
+      })
+      .then(
+        (response: any) => {
+          // Nothing to do
+        },
+        (err: ResponseError<object>) => {
+          vscode.window.showErrorMessage(err.message);
+        }
+      );
+    vscode.window.setStatusBarMessage("Desfragmentando RPO", exec);
+  } else {
+    vscode.window.showErrorMessage(
+      localize("tds.vscode.servernotconnected", "There is no server connected")
+    );
+  }
 }

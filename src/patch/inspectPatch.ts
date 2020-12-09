@@ -1,12 +1,18 @@
 import * as vscode from 'vscode';
-import path = require('path');
-import fs = require('fs');
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import Utils from '../utils';
 import { languageClient } from '../extension';
 const compile = require('template-literal');
 import * as nls from 'vscode-nls';
 import { ResponseError } from 'vscode-languageclient';
+import { CompileKey } from '../compileKey/compileKey';
+import { _debugEvent } from '../debug';
+
 let localize = nls.loadMessageBundle();
+
+let patchInfosData;
 
 let currentPanel: vscode.WebviewPanel | undefined = undefined;
 
@@ -20,11 +26,12 @@ const localizeHTML = {
 	"tds.webview.inspect.items.showing": localize("tds.webview.inspect.items.showing", "Items showing"),
 	"tds.webview.inspect.col01": localize("tds.webview.inspect.col01", "Name"),
 	"tds.webview.inspect.col02": localize("tds.webview.inspect.col02", "Date"),
-}
+};
 
 export function patchInfos(context: vscode.ExtensionContext, args: any) {
 	const server = Utils.getCurrentServer();
-	const authorizationToken = Utils.getPermissionsInfos().authorizationToken;
+	let key: CompileKey = Utils.getPermissionsInfos();
+	const authorizationToken = key ? key.authorizationToken : "";
 
 	if (server) {
 		let extensionPath = "";
@@ -63,7 +70,10 @@ export function patchInfos(context: vscode.ExtensionContext, args: any) {
 				switch (message.command) {
 					case 'patchInfo':
 						sendPatchInfo(message.patchFile, server, authorizationToken, currentPanel);
-						return;
+						break;
+					case 'exportPatchInfo':
+						exportPatchInfo();
+						break;
 					case 'close':
 						if (currentPanel) {
 							currentPanel.dispose();
@@ -96,17 +106,39 @@ function sendPatchPath(path, currentPanel) {
 	});
 }
 
+function exportPatchInfo() {
+	if (patchInfosData) {
+		let patchInfos = patchInfosData;
+		let data = "NAME".padEnd(80, ' ') + "TYPE".padEnd(10, ' ') + "BUILD".padEnd(15, ' ')
+				 + "DATE".padEnd(20, ' ') + "SIZE".padStart(12, ' ') + os.EOL;
+		for (let index = 0; index < patchInfos.length; index++) {
+			const element = patchInfos[index];
+			let output = element.name.padEnd(80, ' ') + element.type.padEnd(10, ' ') + element.buildType.padEnd(15, ' ')
+			+ element.date.padEnd(20, ' ') + element.size.padStart(12, ' ');
+			data += output + os.EOL;
+		}
+		vscode.window.showSaveDialog({ saveLabel: "Export" }).then(exportFile => {
+			fs.writeFileSync(exportFile.fsPath, data);
+		});
+	}
+}
+
 function sendPatchInfo(patchFile, server, authorizationToken, currentPanel) {
+	if (_debugEvent) {
+		vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
+		return;
+	}
 	const patchURI = vscode.Uri.file(patchFile).toString();
 	languageClient.sendRequest('$totvsserver/patchInfo', {
 		"patchInfoInfo": {
-			"connectionToken": server.token,
-			"authorizationToken": authorizationToken,
-			"environment": server.environment,
-			"patchUri": patchURI,
-			"isLocal": true
+			connectionToken: server.token,
+			authorizationToken: authorizationToken,
+			environment: server.environment,
+			patchUri: patchURI,
+			isLocal: true
 		}
 	}).then((response: any) => {
+		patchInfosData = response.patchInfos;
 		currentPanel.webview.postMessage({
 			command: 'setData',
 			data: response.patchInfos

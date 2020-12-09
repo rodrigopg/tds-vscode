@@ -1,12 +1,21 @@
 export interface ICommand {
-  action: CommandAction;
+  action: CommandToDA | CommandToPage;
   content: any;
 }
 
-export enum CommandAction {
+export enum CommandToDA {
     SetTimeLine,
     ChangeRowsPerPage,
     ChangePage,
     ChangeItemsPerPage,
-    SetIgnoreSourcesNotFound
+    SetIgnoreSourcesNotFound,
+    ShowSources
+}
+
+export enum CommandToPage {
+  AddTimeLines,
+  SelectTimeLine,
+  OpenSourcesDialog,
+  OpenWaitPage,
+  ShowLoadingPageDialog
 }

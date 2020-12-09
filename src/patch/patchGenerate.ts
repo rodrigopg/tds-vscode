@@ -1,11 +1,12 @@
-import vscode = require('vscode');
-import path = require('path');
-import fs = require('fs');
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import Utils from '../utils';
 import { languageClient } from '../extension';
 import { commandBuildFile } from '../compile/tdsBuild';
 import * as nls from 'vscode-nls';
 import { ResponseError } from 'vscode-languageclient';
+import { _debugEvent } from '../debug';
 
 let localize = nls.loadMessageBundle();
 const compile = require('template-literal');
@@ -76,7 +77,7 @@ export function patchGenerate(context: vscode.ExtensionContext) {
 			currentPanel.webview.onDidReceiveMessage(message => {
 				switch (message.command) {
 					case 'checkDir':
-						var checkedDir = Utils.checkDir(message.selectedDir);
+						let checkedDir = Utils.checkDir(message.selectedDir);
 						currentPanel.webview.postMessage({
 							command: "checkedDir",
 							checkedDir: checkedDir
@@ -175,7 +176,7 @@ export class PatchResult {
 	returnCode: number;
 }
 
-export class inspectorObject {
+export class InspectorObject {
 	name: string;
 	type: string;
 	date: string;
@@ -183,7 +184,7 @@ export class inspectorObject {
 
 export class ObjectsResult {
 	message: string;
-	objects: Array<inspectorObject>;
+	objects: Array<InspectorObject>;
 }
 
 // function getWizardGeneratePatch(extensionPath: string) {
@@ -199,18 +200,22 @@ export class ObjectsResult {
 // }
 
 function sendPatchGenerateMessage(server, patchMaster, patchDest, patchType, patchName, filesPath) {
+	if (_debugEvent) {
+		vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
+		return;
+	}
 	const permissionsInfos = Utils.getPermissionsInfos();
 	languageClient.sendRequest('$totvsserver/patchGenerate', {
 		"patchGenerateInfo": {
-			"connectionToken": server.token,
-			"authorizationToken": permissionsInfos.authorizationToken,
-			"environment": server.environment,
-			"patchMaster": patchMaster,
-			"patchDest": patchDest,
-			"isLocal": true,
-			"patchType": patchType,
-			"name": patchName,
-			"patchFiles": filesPath
+			connectionToken: server.token,
+			authorizationToken: permissionsInfos ? permissionsInfos.authorizationToken : "",
+			environment: server.environment,
+			patchMaster: patchMaster,
+			patchDest: patchDest,
+			isLocal: true,
+			patchType: patchType,
+			name: patchName,
+			patchFiles: filesPath
 		}
 	}).then((response: PatchResult) => {
 		if (response.returnCode === 40840) { // AuthorizationTokenExpiredError
