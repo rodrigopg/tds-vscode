@@ -11,7 +11,6 @@ import {
   sendIsLockServer,
 } from "../protocolMessages";
 import { MonitorPanelAction, IMonitorPanelAction } from "./actions";
-import { isNullOrUndefined } from "util";
 import Utils, { groupBy } from "../utils";
 import {
   sendDisconnectRequest,
@@ -31,11 +30,11 @@ let monitorLoader: MonitorLoader = undefined;
 export function openMonitorView(context: vscode.ExtensionContext) {
   const server = Utils.getCurrentServer();
 
-  if (isNullOrUndefined(monitorLoader)) {
+  if (monitorLoader === undefined || monitorLoader === null) {
     monitorLoader = new MonitorLoader(context);
   }
 
-  monitorLoader.toggleServerToMonitor(server);
+  monitorLoader?.toggleServerToMonitor(server);
 }
 
 export class MonitorLoader {
@@ -69,9 +68,11 @@ export class MonitorLoader {
 
     this._disposables.push(
       Utils.onDidSelectedServer((newServer: ServerItem) => {
-        monitorLoader.toggleServerToMonitor(newServer);
+        monitorLoader?.toggleServerToMonitor(newServer);
       })
     );
+
+    this.registerCommands();
 
     this._panel = vscode.window.createWebviewPanel(
       "monitorLoader",
@@ -163,7 +164,7 @@ export class MonitorLoader {
 
     if (serverItem) {
       const monitorItem: ServerItem = Utils.deepCopy(
-        Utils.getServerForID(serverItem.id)
+        Utils.getServerById(serverItem.id)
       ) as ServerItem;
 
       monitorItem.id += "_monitor";
@@ -191,6 +192,39 @@ export class MonitorLoader {
         })
       );
     }
+  }
+
+  private registerCommands() {
+    vscode.commands.getCommands(false).then((commands: string[]) => {
+      let index = commands.indexOf("_totvs-developer-studio.clearMonitorPanel");
+      if (index === -1) {
+        this._disposables.push(
+          vscode.commands.registerCommand(
+            "_totvs-developer-studio.clearMonitorPanel",
+            () => {
+              this.clearPanel();
+            }
+          )
+        );
+      }
+
+      index = commands.indexOf("_totvs-developer-studio.updateMonitorPanel");
+      if (index === -1) {
+        this._disposables.push(
+          vscode.commands.registerCommand(
+            "_totvs-developer-studio.updateMonitorPanel",
+            () => {
+              if (!this._isDisposed) {
+                if (this.monitorServer === null) {
+                  this.monitorServer = serverProvider.connectedServerItem;
+                }
+                this.updateUsers(true);
+              }
+            }
+          )
+        );
+      }
+    });
   }
 
   private setLockServer(server: ServerItem, lock: boolean) {
@@ -246,6 +280,7 @@ export class MonitorLoader {
           );
         } else {
           serverProvider.connectedServerItem = undefined;
+          this.clearPanel();
         }
       },
       (error: Error) => {
@@ -309,7 +344,7 @@ export class MonitorLoader {
 
         const p = new Promise((resolve) => {
           setTimeout(() => {
-            resolve();
+            resolve(true);
           }, 5000);
         });
 
@@ -357,7 +392,7 @@ export class MonitorLoader {
 
         const p = new Promise((resolve) => {
           setTimeout(() => {
-            resolve();
+            resolve(true);
           }, 5000);
         });
 
@@ -485,12 +520,13 @@ export class MonitorLoader {
           },
         });
       } else {
-        vscode.window.setStatusBarMessage("$(clock)" +
-          localize(
-            "REQUESTING_DATA_FROM_SERVER",
-            "Requesting data from the server [{0}]",
-            this.monitorServer.name
-          ),
+        vscode.window.setStatusBarMessage(
+          "$(~spin)" +
+            localize(
+              "REQUESTING_DATA_FROM_SERVER",
+              "Requesting data from the server [{0}]",
+              this.monitorServer.name
+            ),
           sendGetUsersRequest(this.monitorServer).then(
             (users: any) => {
               if (users) {
@@ -549,7 +585,7 @@ export class MonitorLoader {
 
   private updateSpeedStatus(pauseReason?: string) {
     let nextUpdate = new Date(Date.now());
-    let icon: string = '$(clock)';
+    let icon: string = "$(~spin)";
     let msg1: string = "";
     let msg2: string = "";
 
@@ -579,6 +615,23 @@ export class MonitorLoader {
     }
 
     vscode.window.setStatusBarMessage(`${icon} ${msg1} ${msg2}`);
+  }
+
+  private clearPanel() {
+    if (
+      !this._isDisposed &&
+      this._panel !== undefined &&
+      this._panel.webview !== undefined
+    ) {
+      this._panel.webview.postMessage({
+        command: MonitorPanelAction.UpdateUsers,
+        data: {
+          serverName: "Disconnected",
+          users: [],
+          servers: [],
+        },
+      });
+    }
   }
 
   private getWebviewContent(): string {
@@ -718,7 +771,7 @@ function getTranslations() {
     SHOW_HIDE_COLUMNS: localize("SHOW_HIDE_COLUMNS", "Show/hide columns"),
     SID: localize("SID", "SID"),
     STOP_SERVER: localize("STOP_SERVER", "Stop server"),
-    THREAD: localize("THREAD", "Thread ID"),
+    THREAD: localize("THREAD", "ThreadID"),
     "TOTAL_INSTRUCTIONS ": localize("TOTAL_INSTRUCTIONS ", "Instructions"),
     UNLOCK_SERVER: localize("UNLOCK_SERVER", "Unlock server"),
     UPDATE_SPEED: localize("UPDATE_SPEED", "Update speed {0}"),

@@ -6,6 +6,8 @@ import { languageClient } from '../extension';
 import Utils from '../utils';
 import { ResponseError } from 'vscode-languageclient';
 import { _debugEvent } from '../debug';
+import { IRpoToken } from '../rpoToken';
+import { CompileKey } from '../compileKey/compileKey';
 
 let localize = nls.loadMessageBundle();
 const compile = require('template-literal');
@@ -60,15 +62,14 @@ export default function showWSPage(context: vscode.ExtensionContext) {
 							return;
 						}
 						if (_debugEvent) {
-							vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
+							vscode.window.showWarningMessage("This operation is not allowed during a debug.")
 							return;
 						}
 						server = Utils.getCurrentServer();
-						const permissionsInfos = Utils.getPermissionsInfos();
 						languageClient.sendRequest('$totvsserver/wsdlGenerate', {
 							"wsdlGenerateInfo": {
 								connectionToken: server.token,
-								authorizationToken : permissionsInfos ? permissionsInfos.authorizationToken : "",
+								authorizationToken : Utils.getAuthorizationToken(server),
 								environment: server.environment,
 								wsdlUrl: message.url
 							}

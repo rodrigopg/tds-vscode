@@ -1,41 +1,66 @@
-import { languageClient, settingsStatusBarItem } from '../extension';
-import * as vscode from 'vscode';
-import * as nls from 'vscode-nls';
-
-let localize = nls.loadMessageBundle();
-
-export function updateSettingsBarItem(): void {
-	let config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration('totvsLanguageServer');
-	let behavior = config.get('editor.toggle.autocomplete');
-
-	settingsStatusBarItem.text = `${behavior}`;
-	settingsStatusBarItem.tooltip = localize("tds.vscode.lssettings.auto.complete",'Auto complete type') + '  ';
-
-	settingsStatusBarItem.show();
-}
+import { languageClient } from "../extension";
+import * as vscode from "vscode";
+import * as nls from "vscode-nls";
+import Utils from "../utils";
 
 export function toggleAutocompleteBehavior() {
-	let config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration('totvsLanguageServer');
-	let behavior = config.get('editor.toggle.autocomplete');
+  let config: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration(
+    "totvsLanguageServer"
+  );
+  let behavior = config.get("editor.toggle.autocomplete");
 
-	if (behavior === 'Basic') {
-		behavior = 'LS';
-	} else {
-		behavior = 'Basic';
-	}
-	config.update('editor.toggle.autocomplete', behavior);
+  if (behavior === "Basic") {
+    behavior = "LS";
+  } else {
+    behavior = "Basic";
+  }
+  config.update("editor.toggle.autocomplete", behavior);
 }
 
 export function syncSettings() {
-	let config = vscode.workspace.getConfiguration('totvsLanguageServer');
+  if (!languageClient.isReady) {
+    return;
+  }
 
-	let behavior = config.get('editor.toggle.autocomplete');
-	changeSettings({ changeSettingInfo: { scope: "advpls", key: "autocomplete", value: behavior } });
+  let config = vscode.workspace.getConfiguration("totvsLanguageServer");
 
-	let notificationlevel = config.get('editor.show.notification');
-	changeSettings({ changeSettingInfo: { scope: "advpls", key: "notificationlevel", value: notificationlevel } });
+  let fsencoding = config.get("filesystem.encoding");
+  changeSettings({
+    changeSettingInfo: {
+      scope: "advpls",
+      key: "fsencoding",
+      value: fsencoding,
+    },
+  });
+
+  let behavior = config.get("editor.toggle.autocomplete");
+  changeSettings({
+    changeSettingInfo: {
+      scope: "advpls",
+      key: "autocomplete",
+      value: behavior,
+    },
+  });
+
+  let notificationlevel = config.get("editor.show.notification");
+  changeSettings({
+    changeSettingInfo: {
+      scope: "advpls",
+      key: "notificationlevel",
+      value: notificationlevel,
+    },
+  });
+
+  let linter = config.get("editor.linter");
+  changeSettings({
+    changeSettingInfo: {
+      scope: "advpls",
+      key: "linter",
+      value: linter ? "enabled" : "disabled",
+    },
+  });
 }
 
-function changeSettings(jsonData: any) {
-	languageClient.sendRequest('$totvsserver/changeSetting', jsonData);
+export function changeSettings(jsonData: any) {
+  languageClient.sendRequest("$totvsserver/changeSetting", jsonData);
 }

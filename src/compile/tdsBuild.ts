@@ -1,16 +1,14 @@
-import * as vscode from 'vscode';
-import { languageClient } from "../extension";
-import utils from "../utils";
-import * as fs from 'fs';
+import * as vscode from "vscode";
+import { blockBuildCommands, languageClient } from "../extension";
+import * as fs from "fs";
 import Utils from "../utils";
-import { showCompileResult } from "./buildResult";
 
-var windows1252 = require('windows-1252');
-var windows1251 = require('windows-1251');
+var windows1252 = require("windows-1252");
+var windows1251 = require("windows-1251");
 
 import * as nls from "vscode-nls";
 import { ResponseError } from "vscode-languageclient";
-import { CompileResult } from "./compileResult";
+import { CompileResult } from "./CompileResult";
 import { sendCompilation } from "../protocolMessages";
 let localize = nls.loadMessageBundle();
 
@@ -30,7 +28,9 @@ function _getCompileOptionsDefault(): CompileOptions {
   let config = vscode.workspace.getConfiguration("totvsLanguageServer");
   let generatePpoFile = config.get("compilation.generatePpoFile");
   let showPreCompiler = config.get("compilation.showPreCompiler");
-  let commitWithErrorOrWarning = config.get("compilation.commitWithErrorOrWarning");
+  let commitWithErrorOrWarning = config.get(
+    "compilation.commitWithErrorOrWarning"
+  );
 
   return {
     recompile: false,
@@ -40,7 +40,7 @@ function _getCompileOptionsDefault(): CompileOptions {
     showPreCompiler: showPreCompiler as boolean,
     priorVelocity: true,
     returnPpo: false,
-    commitWithErrorOrWarning: commitWithErrorOrWarning as boolean
+    commitWithErrorOrWarning: commitWithErrorOrWarning as boolean,
   };
 }
 
@@ -55,20 +55,26 @@ export function generatePpo(filePath: string, options?: any): Promise<string> {
       return;
     }
 
-    const server = utils.getCurrentServer();
+    const server = Utils.getCurrentServer();
     if (!server) {
-      reject(new Error("No server connected. Check if there is a server connected in 'totvs.tds-vscode' extension."));
+      reject(
+        new Error(
+          "No server connected. Check if there is a server connected in 'totvs.tds-vscode' extension."
+        )
+      );
       return;
     }
 
-    const serverItem = utils.getServerForID(server.id);
+    const serverItem = Utils.getServerById(server.id);
     let isAdvplsource: boolean = Utils.isAdvPlSource(filePath);
     if (!isAdvplsource) {
-      reject(new Error("This file has an invalid AdvPL source file extension."));
+      reject(
+        new Error("This file has an invalid AdvPL source file extension.")
+      );
       return;
     }
 
-    const includes = utils.getIncludes(true, serverItem) || [];
+    const includes = Utils.getIncludes(true, serverItem) || [];
     let includesUris: Array<string> = includes.map((include) => {
       return vscode.Uri.file(include).toString();
     });
@@ -86,82 +92,89 @@ export function generatePpo(filePath: string, options?: any): Promise<string> {
     //   extensionsAllowed = configADVPL.get("folder.extensionsAllowed", []); // Le a chave especifica
     // }
 
-    const permissionsInfos = Utils.getPermissionsInfos();
-
     const compileOptions = _getCompileOptionsDefault();
     compileOptions.recompile = true;
     compileOptions.generatePpoFile = false;
     compileOptions.showPreCompiler = false;
     compileOptions.returnPpo = true;
 
-    sendCompilation(server, permissionsInfos, includesUris, filesUris, compileOptions, extensionsAllowed, isAdvplsource)
-    .then(
-    (response: CompileResult) => {
-      if (response.compileInfos.length > 0) {
-        for (let index = 0; index < response.compileInfos.length; index++) {
-          const compileInfo = response.compileInfos[index];
-          if (compileInfo.status === "APPRE") {
-            // o compileInfo.detail chega do LS com encoding utf8
-            // a extensão tds-vscode realiza a conversão para o enconding conforme informado em options.encoding
-            // caso nenhum encoding seja informado, converte para o padrão AdvPL cp1252
-            if (options && options.encoding) {
-              let encoding: string = (<string>options.encoding).toLowerCase();
-              //console.log("encoding: "+encoding);
-              if (options.encoding === 'utf8') {
-                resolve(compileInfo.detail);
+    if (blockBuildCommands(true)) {
+      sendCompilation(
+        server,
+        includesUris,
+        filesUris,
+        compileOptions,
+        extensionsAllowed,
+        isAdvplsource
+      ).then(
+        (response: CompileResult) => {
+          blockBuildCommands(false);
+
+          if (response.compileInfos.length > 0) {
+            for (let index = 0; index < response.compileInfos.length; index++) {
+              const compileInfo = response.compileInfos[index];
+              if (compileInfo.status === "APPRE") {
+                // o compileInfo.detail chega do LS com encoding utf8
+                // a extensão tds-vscode realiza a conversão para o enconding conforme informado em options.encoding
+                // caso nenhum encoding seja informado, converte para o padrão AdvPL cp1252
+                if (options && options.encoding) {
+                  let encoding: string = (<string>(
+                    options.encoding
+                  )).toLowerCase();
+                  //console.log("encoding: "+encoding);
+                  if (options.encoding === "utf8") {
+                    resolve(compileInfo.detail);
+                  } else if (
+                    encoding === "windows-1252" ||
+                    encoding === "cp1252"
+                  ) {
+                    //let apple = "Maçã";
+                    //console.log(apple);
+                    resolve(windows1252.encode(compileInfo.detail));
+                  } else if (
+                    encoding === "windows-1251" ||
+                    encoding === "cp1251"
+                  ) {
+                    //let helloWorld = "Привет мир";
+                    //console.log(helloWorld);
+                    //resolve(windows1251.encode(helloWorld));
+                    resolve(windows1251.encode(compileInfo.detail));
+                  } else {
+                    // unknown encoding - fallback to utf8
+                    resolve(compileInfo.detail);
+                  }
+                } else {
+                  // if there is no encoding option - use windows-1252
+                  resolve(windows1252.encode(compileInfo.detail));
+                }
               }
-              else if (encoding === 'windows-1252' || encoding === 'cp1252') {
-                //let apple = "Maçã";
-                //console.log(apple);
-                resolve(windows1252.encode(compileInfo.detail));
-              }
-              else if (encoding === 'windows-1251' || encoding === 'cp1251') {
-                //let helloWorld = "Привет мир";
-                //console.log(helloWorld);
-                //resolve(windows1251.encode(helloWorld));
-                resolve(windows1251.encode(compileInfo.detail));
-              }
-              else {
-                // unknown encoding - fallback to utf8
-                resolve(compileInfo.detail);
-              }
-            }
-            else {
-              // if there is no encoding option - use windows-1252
-              resolve(windows1252.encode(compileInfo.detail));
             }
           }
+        },
+        (err: ResponseError<object>) => {
+          blockBuildCommands(false);
+          languageClient.error(err.message, err);
+          reject(new Error(err.message));
         }
-      }
-    },
-    (err: ResponseError<object>) => {
-      reject(new Error(err.message));
-    });
+      );
+    }
   });
 }
 
 /**
  * Builds a file.
  */
-export function buildFile(
-  filename: string[],
-  recompile: boolean,
-  context: vscode.ExtensionContext
-) {
+export function buildFile(filename: string[], recompile: boolean) {
   const compileOptions = _getCompileOptionsDefault();
   compileOptions.recompile = recompile;
-  buildCode(filename, compileOptions, context);
+  buildCode(filename, compileOptions);
 }
 
 /**
  * Build a file list.
  */
-async function buildCode(
-  filesPaths: string[],
-  compileOptions: CompileOptions,
-  context: vscode.ExtensionContext
-) {
-  const server = utils.getCurrentServer();
+async function buildCode(filesPaths: string[], compileOptions: CompileOptions) {
+  const server = Utils.getCurrentServer();
 
   const configADVPL = vscode.workspace.getConfiguration("totvsLanguageServer");
   const shouldClearConsole = configADVPL.get("clearConsoleBeforeCompile");
@@ -173,9 +186,8 @@ async function buildCode(
     languageClient.outputChannel.show();
   }
 
-  const resourcesToConfirm: vscode.TextDocument[] = vscode.workspace.textDocuments.filter(
-    (d) => !d.isUntitled && d.isDirty
-  );
+  const resourcesToConfirm: vscode.TextDocument[] =
+    vscode.workspace.textDocuments.filter((d) => !d.isUntitled && d.isDirty);
   const count = resourcesToConfirm.length;
 
   if (count !== 0) {
@@ -195,7 +207,7 @@ async function buildCode(
 
   if (server) {
     //Só faz sentido processar os includes se existir um servidor selecionado onde sera compilado.
-    let serverItem = utils.getServerForID(server.id);
+    let serverItem = Utils.getServerById(server.id);
     let hasAdvplsource: boolean =
       filesPaths.filter((file) => {
         return Utils.isAdvPlSource(file);
@@ -203,7 +215,7 @@ async function buildCode(
     let includes: Array<string> = [];
 
     if (hasAdvplsource) {
-      includes = utils.getIncludes(true, serverItem) || [];
+      includes = Utils.getIncludes(true, serverItem) || [];
       if (!includes.toString()) {
         return;
       }
@@ -230,20 +242,28 @@ async function buildCode(
             "tds.webview.tdsBuild.resourceInList",
             "Resource appears in the list of files to ignore. Resource: {0}",
             file
-            )
-            );
-          }
-        });
+          )
+        );
+      }
+    });
 
-        let extensionsAllowed: string[];
-        if (configADVPL.get("folder.enableExtensionsFilter", true)) {
-          extensionsAllowed = configADVPL.get("folder.extensionsAllowed", []); // Le a chave especifica
-        }
+    let extensionsAllowed: string[];
+    if (configADVPL.get("folder.enableExtensionsFilter", true)) {
+      extensionsAllowed = configADVPL.get("folder.extensionsAllowed", []); // Le a chave especifica
+    }
 
-        const permissionsInfos = Utils.getPermissionsInfos();
-        sendCompilation(server, permissionsInfos, includesUris, filesUris, compileOptions, extensionsAllowed, hasAdvplsource)
-        .then(
+    if (blockBuildCommands(true)) {
+      sendCompilation(
+        server,
+        includesUris,
+        filesUris,
+        compileOptions,
+        extensionsAllowed,
+        hasAdvplsource
+      ).then(
         (response: CompileResult) => {
+          blockBuildCommands(false);
+
           if (response.returnCode === 40840) {
             Utils.removeExpiredAuthorization();
           }
@@ -265,15 +285,18 @@ async function buildCode(
               // focus
               vscode.commands.executeCommand("workbench.action.problems.focus");
             }
-            if (context !== undefined) {
-              verifyCompileResult(response, context);
+            if (filesUris.length > 1) {
+              verifyCompileResult(response);
             }
           }
         },
         (err: ResponseError<object>) => {
+          blockBuildCommands(false);
+          languageClient.error(err.message, err);
           vscode.window.showErrorMessage(err.message);
         }
       );
+    }
   } else {
     vscode.window.showErrorMessage(
       localize("tds.webview.tdsBuild.noServer", "No server connected")
@@ -281,7 +304,7 @@ async function buildCode(
   }
 }
 
-function verifyCompileResult(response, context) {
+function verifyCompileResult(response) {
   const textNoAsk = localize("tds.vscode.noAskAgain", "Don't ask again");
   const textNo = localize("tds.vscode.no", "No");
   const textYes = localize("tds.vscode.yes", "Yes");
@@ -299,18 +322,26 @@ function verifyCompileResult(response, context) {
       .showInformationMessage(textQuestion, textYes, textNo, textNoAsk)
       .then((clicked) => {
         if (clicked === textYes) {
-          showCompileResult(response, context);
+          vscode.commands.executeCommand(
+            "totvs-developer-studio.show.result.build",
+            response
+          );
         } else if (clicked === textNoAsk) {
           questionAgain = false;
+          configADVPL.update("askCompileResult", questionAgain);
         }
-        configADVPL.update("askCompileResult", questionAgain);
       });
   }
 }
 
-export function commandBuildFile(context, recompile: boolean, files) {
+export function commandBuildFile(
+  context: vscode.ExtensionContext,
+  recompile: boolean,
+  files
+) {
   let editor: vscode.TextEditor | undefined;
   let filename: string | undefined = undefined;
+
   if (context === undefined) {
     //A ação veio pelo ctrl+f9
     editor = vscode.window.activeTextEditor;
@@ -326,15 +357,20 @@ export function commandBuildFile(context, recompile: boolean, files) {
     filename = editor.document.uri.fsPath;
     recompile = true;
   }
-  if (files) {
-    const arrayFiles: string[] = changeToArrayString(files);
-    let allFiles = Utils.getAllFilesRecursive(arrayFiles);
-    buildFile(allFiles, recompile, context);
-  } else {
-    if (filename !== undefined) {
-      buildFile([filename], recompile, context);
-    }
-  }
+
+  vscode.window.setStatusBarMessage(
+    `$(~spin) ${localize("tds.vscode.building", "Building...")}`,
+    new Promise((resolve, reject) => {
+      if (files) {
+        const arrayFiles: string[] = changeToArrayString(files);
+        let allFiles = Utils.getAllFilesRecursive(arrayFiles);
+        buildFile(allFiles, recompile);
+      } else if (filename !== undefined) {
+        buildFile([filename], recompile);
+      }
+      resolve(true);
+    })
+  );
 }
 
 function changeToArrayString(allFiles) {
@@ -353,10 +389,7 @@ function changeToArrayString(allFiles) {
   return arrayFiles;
 }
 
-export function commandBuildWorkspace(
-  recompile: boolean,
-  context: vscode.ExtensionContext
-) {
+export function commandBuildWorkspace(recompile: boolean) {
   if (vscode.workspace.workspaceFolders) {
     let folders: string[] = [];
 
@@ -366,14 +399,11 @@ export function commandBuildWorkspace(
 
     let allFiles = Utils.getAllFilesRecursive(folders);
 
-    buildFile(allFiles, recompile, context);
+    buildFile(allFiles, recompile);
   }
 }
 
-export async function commandBuildOpenEditors(
-  recompile: boolean,
-  context: vscode.ExtensionContext
-) {
+export async function commandBuildOpenEditors(recompile: boolean) {
   let delayNext = 250;
   let files: string[] = [];
   let filename: string | undefined = undefined;
@@ -441,7 +471,7 @@ export async function commandBuildOpenEditors(
   if (files.length > 0) {
     const compileOptions = _getCompileOptionsDefault();
     compileOptions.recompile = recompile;
-    buildCode(files, compileOptions, context);
+    buildCode(files, compileOptions);
   } else {
     vscode.window.showWarningMessage("There is nothing to compile");
   }

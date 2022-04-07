@@ -1,8 +1,5 @@
 import * as React from "react";
-import MaterialTable, {
-  Column,
-  MTableToolbar
-} from "material-table";
+import MaterialTable, { Column, MTableToolbar } from "material-table";
 import {
   createStyles,
   lighten,
@@ -16,7 +13,6 @@ import {
   monitorIcons,
 } from "../helper/monitorIcons";
 import { MonitorPanelAction, IMonitorPanelAction } from "../actions";
-import IMonitorUser from "../monitorUser";
 import SendMessageDialog from "./sendMessageDialog";
 import FilterList from "@material-ui/icons/FilterList";
 import SpeedIcon from "@material-ui/icons/Speed";
@@ -32,7 +28,7 @@ import StopServerDialog from "./stopServerDialog";
 import LockServerDialog from "./lockServerDialog";
 import UnlockServerDialog from "./unlockServerDialog";
 import DisconnectUserDialog from "./disconnectUserDialog";
-import SpeedUpdateDialogDialog from "./speedUpdateDialog";
+import SpeedUpdateDialog from "./speedUpdateDialog";
 import MonitorTheme from "../helper/theme";
 import { useMemento, IMemento } from "../helper";
 import {
@@ -51,6 +47,7 @@ import {
 } from "./monitorPanelMemento";
 import { i18n } from "../helper";
 import RemarkDialog from "./remarkDialog";
+import ConfirmDialog from "./confirmDialog";
 
 const useToolbarStyles = makeStyles((theme: Theme) =>
   createStyles({
@@ -199,6 +196,7 @@ export default function MonitorPanel(props: IMonitorPanel) {
     speedUpdate: false,
     remark: false,
     remarkToShow: "",
+    confirmReset: false,
   });
   const [columns] = React.useState(buildColumns(memento));
   const [reset, setReset] = React.useState(false);
@@ -237,12 +235,18 @@ export default function MonitorPanel(props: IMonitorPanel) {
           break;
         }
         case MonitorPanelAction.UpdateUsers: {
-          const users = message.data.users as IMonitorUser[];
-          const servers = message.data.servers as any[];
+          //const users = message.data.users as IMonitorUser[];
+          //const servers = message.data.servers as any[];
 
-          setRows(users);
+          setRows((rows) => {
+            if (event !== undefined) {
+              event.preventDefault();
+            }
+            return message.data.users;
+          });
           setSubtitle(message.data.serverName);
-          //setServers(servers);
+
+          ////setServers(servers);
           break;
         }
         default:
@@ -272,9 +276,20 @@ export default function MonitorPanel(props: IMonitorPanel) {
     props.vscode.postMessage(command);
   };
 
-  const handleResetButtonClick = () => {
+  const handleResetButtonClick = (
+    event: React.MouseEvent<HTMLButtonElement, MouseEvent>
+  ) => {
     event.preventDefault();
-    setReset(true);
+
+    setOpenDialog({ ...openDialog, confirmReset: true });
+  };
+
+  const doResetConfiguration = (confirm: boolean) => {
+    setOpenDialog({ ...openDialog, confirmReset: false });
+
+    if (confirm) {
+      setReset(true);
+    }
   };
 
   const handleLockButtonClick = (
@@ -319,6 +334,7 @@ export default function MonitorPanel(props: IMonitorPanel) {
 
   const doSpeedUpdate = (confirm: boolean, speed: number) => {
     setOpenDialog({ ...openDialog, speedUpdate: false });
+    console.log(speedDialog);
 
     if (confirm) {
       setSpeed(speed);
@@ -352,16 +368,18 @@ export default function MonitorPanel(props: IMonitorPanel) {
     setOpenDialog({ ...openDialog, stopServer: true });
   };
 
-  const doStopServer = (killNow: boolean) => {
+  const doStopServer = (confirm: boolean) => {
     setTargetRow(null);
     setOpenDialog({ ...openDialog, stopServer: false });
 
-    let command: IMonitorPanelAction = {
-      action: MonitorPanelAction.StopServer,
-      content: { killNow: killNow },
-    };
+    if (confirm) {
+      let command: IMonitorPanelAction = {
+        action: MonitorPanelAction.StopServer,
+        content: {},
+      };
 
-    props.vscode.postMessage(command);
+      props.vscode.postMessage(command);
+    }
   };
 
   const handleSendMessageButtonClick = (
@@ -442,8 +460,12 @@ export default function MonitorPanel(props: IMonitorPanel) {
   const doOrderChange = (orderBy: number, direction: string) => {
     const columns = propColumns().columns;
 
-    memento.set(propOrderBy(columns[orderBy]["field"]));
-    memento.set(propOrderDirection(direction));
+    if (columns[orderBy] === null || columns[orderBy] === undefined) {
+      memento.set(propOrderBy(0));
+    } else {
+      memento.set(propOrderBy(columns[orderBy]["field"]));
+      memento.set(propOrderDirection(direction));
+    }
   };
 
   const doColumnDragged = (sourceIndex: number, destinationIndex: number) => {
@@ -482,14 +504,14 @@ export default function MonitorPanel(props: IMonitorPanel) {
 
   if (!locked) {
     actions.push({
-      icon: () => <LockIcon />,
+      icon: () => <LockOpenIcon />,
       tooltip: i18n.localize("LOCK_SERVER", "Lock server"),
       isFreeAction: true,
       onClick: (event: any) => handleLockButtonClick(event),
     });
   } else {
     actions.push({
-      icon: () => <LockOpenIcon />,
+      icon: () => <LockIcon />,
       tooltip: i18n.localize("UNLOCK_SERVER", "Unlock server"),
       isFreeAction: true,
       onClick: (event: any) => handleUnlockButtonClick(event),
@@ -526,8 +548,8 @@ export default function MonitorPanel(props: IMonitorPanel) {
   actions.push({
     icon: () => <DisconnectIcon />,
     tooltip: i18n.localize(
-      "DISCONNECT_SELECTD_USERS",
-      "Disconnect selectd users"
+      "DISCONNECT_SELECTED_USERS",
+      "Disconnect selected users"
     ),
     isFreeAction: false,
     onClick: (event: any) => handleDisconnectUserButtonClick(event, rows),
@@ -600,10 +622,11 @@ export default function MonitorPanel(props: IMonitorPanel) {
     icon: () => <FormatClearIcon />,
     tooltip: i18n.localize("RESET_CONFIGURATIONS", "Reset configurations"),
     isFreeAction: true,
-    onClick: () => handleResetButtonClick(),
+    onClick: (event: any) => handleResetButtonClick(event),
   });
 
   const style = useToolbarStyles();
+  const speedDialog = React.useRef();
 
   return (
     <MonitorTheme>
@@ -611,7 +634,7 @@ export default function MonitorPanel(props: IMonitorPanel) {
         <MaterialTable
           components={{
             Toolbar: (props) => (
-              <div>
+              <div id="toolbarID">
                 <Title
                   title={i18n.localize("MONITOR", "Monitor")}
                   subtitle={
@@ -623,7 +646,7 @@ export default function MonitorPanel(props: IMonitorPanel) {
 
                 <MTableToolbar {...props} />
               </div>
-            )
+            ),
           }}
           localization={i18n.materialTableLocalization}
           icons={monitorIcons.table}
@@ -652,6 +675,9 @@ export default function MonitorPanel(props: IMonitorPanel) {
           actions={actions}
           onSelectionChange={(rows) => setSelected(rows)}
           onChangeRowsPerPage={(value) => doChangeRowsPerPage(value)}
+          //As versoes mais novas do @material/core usam as propriedades abaixo, porem por problemas de compatibilidade
+          //entre a versao mais nova do "@material-ui/core" e do material-table: 1.69.3, é necesaario manter o "@material-ui/core" na versao 4.11.4,
+          //onRowsPerPageChange={(value) => doChangeRowsPerPage(value)}
           onChangeColumnHidden={(column, hidden) =>
             doColumnHidden(column, hidden)
           }
@@ -665,7 +691,6 @@ export default function MonitorPanel(props: IMonitorPanel) {
           }
         />
       </Paper>
-
       <SendMessageDialog
         open={openDialog.sendMessage}
         recipients={
@@ -673,32 +698,39 @@ export default function MonitorPanel(props: IMonitorPanel) {
         }
         onClose={doSendMessage}
       />
-
       <DisconnectUserDialog
         open={openDialog.disconnectUser}
         recipients={selected.length === 0 ? rows : selected}
         onClose={doDisconnectUser}
       />
-
       <StopServerDialog open={openDialog.stopServer} onClose={doStopServer} />
-
       <LockServerDialog open={openDialog.lockServer} onClose={doLockServer} />
-
       <UnlockServerDialog
         open={openDialog.unlockServer}
         onClose={doUnlockServer}
       />
-
       <RemarkDialog
         open={openDialog.remark}
         onClose={doRemarkClose}
         remark={openDialog.remarkToShow}
       />
-
-      <SpeedUpdateDialogDialog
+      <SpeedUpdateDialog
         speed={speed}
         open={openDialog.speedUpdate}
         onClose={doSpeedUpdate}
+      />
+
+      <ConfirmDialog
+        open={openDialog.confirmReset}
+        operation={i18n.localize(
+          "RESET_CONFIGURATIONS",
+          "Reset configurations"
+        )}
+        message={i18n.localize(
+          "RESET_MESSAGE",
+          "The settings made will be reset to default. Unable to recover."
+        )}
+        onClose={doResetConfiguration}
       />
     </MonitorTheme>
   );

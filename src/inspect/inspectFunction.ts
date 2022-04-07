@@ -7,6 +7,7 @@ const compile = require('template-literal');
 import * as nls from 'vscode-nls';
 import { ResponseError } from 'vscode-languageclient';
 let localize = nls.loadMessageBundle();
+import { openInspectView } from "../inspect-harpia";
 
 const localizeHTML = {
 	"tds.webview.inspect.generate": localize("tds.webview.inspect.generate", "Patch Generation"),
@@ -26,6 +27,20 @@ const localizeHTML = {
 
 export function inspectFunctions(context: vscode.ExtensionContext) {
 	const server = Utils.getCurrentServer();
+	if (server) {
+		if (Utils.isSafeRPO(server)) {
+			openInspectView(context, {
+				objectsInspector: false,
+				includeOutScope: false, //inicia com #NONE
+			});
+		} else {
+			inspectFunctionsLegado(context);
+		}
+	}
+}
+
+function inspectFunctionsLegado(context: vscode.ExtensionContext) {
+	const server = Utils.getCurrentServer();
 
 	if (server) {
 		let extensionPath = "";
@@ -39,15 +54,17 @@ export function inspectFunctions(context: vscode.ExtensionContext) {
 		}
 
 		const currentPanel = vscode.window.createWebviewPanel(
-			'totvs-developer-studio.inspect.function',
-			'Inspetor de Funções',
-			vscode.ViewColumn.One,
-			{
-				enableScripts: true,
-				localResourceRoots: [vscode.Uri.file(path.join(extensionPath, 'src', 'patch'))],
-				retainContextWhenHidden: true
-			}
-		);
+      "totvs-developer-studio.inspect.function",
+      "Functions Inspector",
+      vscode.ViewColumn.One,
+      {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.file(path.join(extensionPath, "src", "patch")),
+        ],
+        retainContextWhenHidden: true,
+      }
+    );
 
 		currentPanel.webview.html = getWebViewContent(context, localizeHTML);
 

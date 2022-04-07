@@ -18,9 +18,11 @@ interface AuthenticationNode {
 import { languageClient } from "./extension";
 import { ResponseError } from "vscode-languageclient";
 import { ServerItem } from "./serverItemProvider";
-import { CompileResult } from "./compile/compileResult";
-import { IRpoInfoData as RpoInfoResult } from "./rpoInfo/rpoPath";
+import { CompileResult } from "./compile/CompileResult";
 import { _debugEvent } from "./debug";
+import { IRpoInfoData as RpoInfoResult } from "./rpoInfo/rpoPath";
+import { IRpoToken } from "./rpoToken";
+import Utils from "./utils";
 
 export enum ConnTypeIds {
   CONNT_DEBUGGER = 3,
@@ -146,7 +148,6 @@ export function sendConnectRequest(
         }
       },
       (err: ResponseError<object>) => {
-        vscode.window.showErrorMessage(err.message);
         return { sucess: false, token: "", needAuthentication: false };
       }
     );
@@ -184,7 +185,6 @@ export function sendAuthenticateRequest(
         }
       },
       (err: ResponseError<object>) => {
-        vscode.window.showErrorMessage(err.message);
         return { sucess: false, token: "" };
       }
     );
@@ -218,7 +218,6 @@ export function sendReconnectRequest(
         }
       },
       (error: any) => {
-        vscode.window.showErrorMessage(error.message);
         return { sucess: false, environment: "", user: "", token: "" };
       }
     );
@@ -247,7 +246,6 @@ export function sendValidationRequest(
         };
       },
       (err: ResponseError<object>) => {
-        vscode.window.showErrorMessage(err.message);
         return {
           build: "",
           secure: false,
@@ -395,21 +393,22 @@ export function sendAppKillConnection(
 
 export function sendCompilation(
   server: ServerItem,
-  permissionsInfos,
-  includesUris,
-  filesUris,
+  includesUris: string[],
+  filesUris: string[],
   compileOptions,
-  extensionsAllowed,
-  hasAdvplsource
+  extensionsAllowed: string[],
+  hasAdvplsource: boolean
 ): Thenable<CompileResult> {
   if (_debugEvent) {
-    vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
-    return;
+    return Promise.reject(
+      new Error("This operation is not allowed during a debug.")
+    );
   }
+
   return languageClient.sendRequest("$totvsserver/compilation", {
     compilationInfo: {
       connectionToken: server.token,
-      authorizationToken: permissionsInfos ? permissionsInfos.authorizationToken : "",
+      authorizationToken: Utils.getAuthorizationToken(server),
       environment: server.environment,
       includeUris: includesUris,
       fileUris: filesUris,
@@ -422,9 +421,11 @@ export function sendCompilation(
 
 export function sendRpoInfo(server: ServerItem): Thenable<RpoInfoResult> {
   if (_debugEvent) {
-    vscode.window.showWarningMessage("Esta operação não é permitida durante uma depuração.")
-    return;
+    return Promise.reject(
+      new Error("This operation is not allowed during a debug.")
+    );
   }
+
   return languageClient
     .sendRequest("$totvsserver/rpoInfo", {
       rpoInfo: {
@@ -432,9 +433,272 @@ export function sendRpoInfo(server: ServerItem): Thenable<RpoInfoResult> {
         environment: server.environment,
       },
     })
+    .then((response: RpoInfoResult) => {
+      return response;
+    });
+}
+
+export function sendPatchInfo(
+  server: ServerItem,
+  patchUri: string
+): Thenable<any> {
+  if (_debugEvent) {
+    return Promise.reject(
+      new Error("This operation is not allowed during a debug.")
+    );
+  }
+
+  return languageClient
+    .sendRequest("$totvsserver/patchInfo", {
+      patchInfoInfo: {
+        connectionToken: server.token,
+        authorizationToken: Utils.getAuthorizationToken(server),
+        environment: server.environment,
+        patchUri: patchUri,
+        isLocal: true,
+      },
+    })
     .then(
-      (response: RpoInfoResult) => {
-        return response;
+      (response: any) => {
+        return response.patchInfos;
+      },
+      (err: ResponseError<object>) => {
+        vscode.window.showErrorMessage(err.message);
       }
     );
+}
+
+export interface IApplyTemplateResult {
+  error: boolean;
+  message: string;
+  errorCode: number;
+}
+
+export function sendApplyTemplateRequest(
+  server: ServerItem,
+  includesUris: Array<string>,
+  templateUri: vscode.Uri
+): Thenable<IApplyTemplateResult> {
+  return languageClient
+    .sendRequest("$totvsserver/templateApply", {
+      templateApplyInfo: {
+        connectionToken: server.token,
+        authorizationToken: Utils.getAuthorizationToken(server),
+        environment: server.environment,
+        includeUris: includesUris,
+        templateUri: templateUri.toString(),
+        isLocal: true,
+      },
+    })
+    .then(
+      (response: IApplyTemplateResult) => {
+        if (response.error) {
+          return Promise.reject(response);
+        }
+        return Promise.resolve(response);
+      },
+      (err: ResponseError<object>) => {
+        const error: IApplyTemplateResult = {
+          error: true,
+          message: err.message,
+          errorCode: err.code,
+        };
+        return Promise.reject(error);
+      }
+    );
+}
+
+interface IRpoTokenResult {
+  sucess: boolean;
+  message: string;
+}
+
+export function sendRpoToken(
+  server: ServerItem,
+  rpoToken: IRpoToken
+): Thenable<IRpoTokenResult> {
+  if (rpoToken.token === "") {
+    return Promise.resolve({ sucess: false, message: "" });
+  }
+
+  return languageClient
+    .sendRequest("$totvsserver/rpoToken", {
+      rpoToken: {
+        connectionToken: server.token,
+        environment: server.environment,
+        file: "<internal string>", //rpoToken.file,
+        content: rpoToken.token,
+      },
+    })
+    .then(
+      (response: IRpoTokenResult) => {
+        return response;
+      },
+      (err: ResponseError<object>) => {
+        return { sucess: false, message: err.message };
+      }
+    );
+}
+
+export interface IGetPatchDirResult {
+  directory: string[];
+}
+
+export function sendGetPatchDir(
+  server: ServerItem,
+  folder: string,
+  includeDir: boolean
+): Promise<IGetPatchDirResult> {
+  return languageClient
+    .sendRequest("$totvsserver/getPatchDir", {
+      pathDirListInfo: {
+        connectionToken: server.token,
+        environment: server.environment,
+        folder: folder,
+        includeDir: includeDir,
+      },
+    })
+    .then((response: IGetPatchDirResult) => {
+      return response;
+    });
+}
+
+export interface IGetServerPermissionsResult {
+  message: string;
+  serverPermissions: {
+    operation: string[];
+    text: string[];
+  };
+}
+
+export function sendGetServerPermissionsInfo(
+  server: ServerItem
+): Promise<IGetServerPermissionsResult> {
+  return languageClient
+    .sendRequest("$totvsserver/serverPermissions", {
+      serverPermissionsInfo: {
+        connectionToken: server.token,
+      },
+    })
+    .then((response: IGetServerPermissionsResult) => {
+      return response;
+    });
+}
+
+export interface IInspectorFunctionsResult {
+  message: string;
+  functions: string[];
+}
+
+export interface IInspectorFunctionsData {
+  message: string;
+  functions: string[];
+}
+
+export interface IFunctionData {
+  function: string;
+  source: string;
+  line: number;
+  rpo_status: string | number;
+  source_status: string | number;
+}
+
+export interface IObjectData {
+  source: string;
+  date: string;
+  rpo_status: string | number;
+  source_status: string | number;
+}
+
+export function sendInspectorObjectsRequest(
+  server: ServerItem,
+  includeTres: boolean
+): Thenable<IObjectData[]> {
+  return languageClient
+    .sendRequest("$totvsserver/inspectorObjects", {
+      inspectorObjectsInfo: {
+        connectionToken: server.token,
+        environment: server.environment,
+        includeTres: includeTres,
+      },
+    })
+    .then((response: any) => {
+      const result: IObjectData[] = [];
+      const regexp: RegExp = /(.*)\s\((.*)\)\s(.)(.)/i;
+
+      response.objects.forEach((line: string) => {
+        const groups = regexp.exec(line);
+
+        let data: IObjectData;
+        if (groups) {
+          data = {
+            source: groups[1],
+            date: groups[2],
+            rpo_status: groups[4],
+            source_status: groups[3],
+          };
+        } else {
+          data = {
+            source: line,
+            date: "",
+            rpo_status: "",
+            source_status: "",
+          };
+        }
+
+        result.push(data);
+      });
+
+      return result;
+    });
+}
+
+export function sendInspectorFunctionsRequest(
+  server: ServerItem,
+  includeOnlyPublic: boolean
+): Thenable<IFunctionData[]> {
+  return languageClient
+    .sendRequest("$totvsserver/inspectorFunctions", {
+      inspectorFunctionsInfo: {
+        connectionToken: server.token,
+        environment: server.environment,
+      },
+    })
+    .then((response: IInspectorFunctionsResult) => {
+      const result: IFunctionData[] = [];
+      const regexp: RegExp = /(#NONE#)?(.*)(#NONE#)?\s\((.*):(\d+)\)\s?(.)(.)/i;
+
+      response.functions
+        .filter((line: string) =>
+          includeOnlyPublic && line.startsWith("#NONE") ? false : true
+        )
+        .forEach((line: string) => {
+          const groups = regexp.exec(line);
+
+          let data: IFunctionData;
+          if (groups) {
+            data = {
+              function: groups[1]
+                ? "#" + groups[2].substring(0, groups[2].indexOf("#"))
+                : groups[2],
+              source: groups[4],
+              line: Number.parseInt(groups[5]),
+              rpo_status: groups[7],
+              source_status: groups[6],
+            };
+          } else {
+            data = {
+              function: line,
+              source: "",
+              line: 0,
+              rpo_status: "",
+              source_status: "",
+            };
+          }
+
+          result.push(data);
+        });
+
+      return result;
+    });
 }

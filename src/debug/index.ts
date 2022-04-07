@@ -3,12 +3,14 @@ import { TotvsConfigurationProvider } from "./TotvsConfigurationProvider";
 import { TotvsConfigurationWebProvider } from "./TotvsConfigurationWebProvider";
 import { TotvsDebugAdapterDescriptorFactory } from "./TotvsDebugAdapterDescriptorFactory";
 import { TotvsConfigurationTdsReplayProvider } from "./TotvsConfigurationTdsReplayProvider";
-import { processDebugCustomEvent } from "./debugEvents";
+import {
+  processDebugCustomEvent,
+  procesStartDebugSessionEvent,
+} from "./debugEvents";
 
 export let _debugEvent = undefined;
 
 export const registerDebug = (context: vscode.ExtensionContext) => {
-
   const factory = new TotvsDebugAdapterDescriptorFactory(context);
 
   /****** Configurações de execução do debugger regular **/
@@ -16,38 +18,41 @@ export const registerDebug = (context: vscode.ExtensionContext) => {
   const debugProvider = new TotvsConfigurationProvider();
   registerDebugAdapter(
     context,
-    TotvsConfigurationProvider.type,
+    TotvsConfigurationProvider._TYPE,
     debugProvider,
     factory
   );
   context.subscriptions.push(debugProvider);
-
 
   /**** Configurações de execução do debug com TDS Replay *******/
 
   const tdsReplayProvider = new TotvsConfigurationTdsReplayProvider();
   registerDebugAdapter(
     context,
-    TotvsConfigurationTdsReplayProvider.type,
+    TotvsConfigurationTdsReplayProvider._TYPE,
     tdsReplayProvider,
     factory
   );
   context.subscriptions.push(tdsReplayProvider);
-
 
   /***** Configuração de debug web *****/
 
   const webProvider = new TotvsConfigurationWebProvider();
   registerDebugAdapter(
     context,
-    TotvsConfigurationWebProvider.type,
+    TotvsConfigurationWebProvider._TYPE,
     webProvider,
     factory
   );
   context.subscriptions.push(webProvider);
 
-
   /** Configurações gerais de debug  */
+
+  context.subscriptions.push(
+    vscode.debug.onDidStartDebugSession((event: any) => {
+      procesStartDebugSessionEvent(event);
+    })
+  );
 
   context.subscriptions.push(
     vscode.debug.onDidReceiveDebugSessionCustomEvent(
@@ -65,16 +70,17 @@ export const registerDebug = (context: vscode.ExtensionContext) => {
   );
 };
 
-
-
-function registerDebugAdapter(context: vscode.ExtensionContext, type: string, provider: vscode.DebugConfigurationProvider, factory: vscode.DebugAdapterDescriptorFactory)
-{
+function registerDebugAdapter(
+  context: vscode.ExtensionContext,
+  type: string,
+  provider: vscode.DebugConfigurationProvider,
+  factory: vscode.DebugAdapterDescriptorFactory
+) {
   context.subscriptions.push(
     vscode.debug.registerDebugConfigurationProvider(type, provider)
   );
 
   context.subscriptions.push(
-    vscode.debug.registerDebugAdapterDescriptorFactory(type,factory)
+    vscode.debug.registerDebugAdapterDescriptorFactory(type, factory)
   );
-
 }

@@ -1,10 +1,20 @@
 import {
   LanguageClient,
   ServerOptions,
-  LanguageClientOptions
+  LanguageClientOptions,
 } from "vscode-languageclient";
 
 export class TotvsLanguageClientA extends LanguageClient {
+  private _ready: boolean = false;
+
+  public get isReady(): boolean {
+    return this._ready;
+  }
+
+  public set ready(value: boolean) {
+    this._ready = value;
+  }
+
   constructor(
     serverOptions: ServerOptions,
     clientOptions: LanguageClientOptions
@@ -20,31 +30,4 @@ export class TotvsLanguageClientA extends LanguageClient {
   registerBuiltinFeatures() {
     super.registerBuiltinFeatures();
   }
-
 }
-  // function provideCodeLens(
-  //   document: TextDocument,
-  //   token: CancellationToken,
-  //   next: ProvideCodeLensesSignature
-  // ): ProviderResult<CodeLens[]> {
-  //   let config = workspace.getConfiguration("AdvPL");
-  //   let enableInlineCodeLens = config.get("codeLens.renderInline", false);
-  //   if (!enableInlineCodeLens) {
-  //     return next(document, token);
-  //   }
-  //   // We run the codeLens request ourselves so we can intercept the response.
-  //   return languageClient
-  //     .sendRequest("textDocument/codeLens", {
-  //       textDocument: {
-  //         uri: document.uri.toString(),
-  //       },
-  //     })
-  //     .then((a: ls.CodeLens[]): CodeLens[] => {
-  //       let result: CodeLens[] = languageClient.protocol2CodeConverter.asCodeLenses(
-  //         a
-  //       );
-  //       displayCodeLens(document, result, codeLensDecoration);
-  //       return [];
-  //     });
-  // }
-

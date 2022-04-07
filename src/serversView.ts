@@ -3,7 +3,6 @@ import * as fs from "fs";
 import * as path from "path";
 import Utils from "./utils";
 import * as nls from "vscode-nls";
-import { languageClient, totvsStatusBarItem } from "./extension";
 import { inputConnectionParameters } from "./inputConnectionParameters";
 import { inputAuthenticationParameters } from "./inputAuthenticationParameters";
 import { ResponseError } from "vscode-languageclient";
@@ -106,10 +105,9 @@ export class ServersExplorer {
                 });
                 break;
               case "saveServer":
-                const typeServer = "totvs_server_protheus";
                 if (message.serverName && message.port && message.address) {
                   const serverId = createServer(
-                    typeServer,
+                    message.serverType,
                     message.serverName,
                     message.port,
                     message.address,
@@ -126,6 +124,8 @@ export class ServersExplorer {
                           validInfoNode.build,
                           validInfoNode.secure
                         );
+
+                        currentPanel?.dispose();
                         return;
                       },
                       (err: ResponseError<object>) => {
@@ -192,40 +192,21 @@ export class ServersExplorer {
               false
             );
           } else {
-            //Há build no servidor.
-            vscode.window.setStatusBarMessage(
-              `Validando servidor [${serverItem.name}]`,
-              sendValidationRequest(serverItem.address, serverItem.port).then(
-                (validationInfo: IValidationInfo) => {
-                  //retornou uma versao valida no servidor.
-                  const updated = Utils.updateBuildVersion(
-                    serverItem.id,
-                    validationInfo.build,
-                    validationInfo.secure
-                  );
-                  serverItem.buildVersion = validationInfo.build;
-                  if (updated) {
-                    //continua a autenticacao.
-                    inputConnectionParameters(
-                      context,
-                      serverItem,
-                      ConnTypeIds.CONNT_DEBUGGER,
-                      false
-                    );
-                  } else {
-                    vscode.window.showErrorMessage(
-                      localize(
-                        "tds.webview.serversView.couldNotConn",
-                        "Could not connect to server"
-                      )
-                    );
-                  }
-                  return;
-                },
-                (err: ResponseError<object>) => {
-                  vscode.window.showErrorMessage(err.message);
-                }
-              )
+            //Há build no servidor
+            vscode.window.withProgress(
+              {
+                location: vscode.ProgressLocation.Window,
+                title: localize(
+                  "tds.webview.validating_server",
+                  "Validating server {0}",
+                  serverItem.name
+                ),
+              },
+              async (progress, token) => {
+                progress.report({ increment: 0 });
+                await doValidation(context, serverItem);
+                progress.report({ increment: 100 });
+              }
             );
           }
         }
@@ -249,7 +230,8 @@ export class ServersExplorer {
             vscode.window.showErrorMessage(
               localize(
                 "tds.webview.serversView.couldNotReconn",
-                "Could not reconnect to server"
+                "Could not reconnect to server {0}",
+                serverItem.name
               )
             );
           }
@@ -261,27 +243,22 @@ export class ServersExplorer {
       "totvs-developer-studio.disconnect",
       (serverItem: ServerItem) => {
         if (serverItem.isConnected) {
-          vscode.window.setStatusBarMessage(
-            `Desconectando do servidor [${serverItem.name}]`,
-            sendDisconnectRequest(serverItem).then(
-              (ti: ITokenInfo) => {
-                if (!ti.sucess) {
-                  serverProvider.connectedServerItem = undefined;
-                }
-              },
-              (err: ResponseError<object>) => {
-                serverProvider.connectedServerItem = undefined;
-                handleError(err);
-              }
-            )
+          vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Window,
+              title: localize(
+                "tds.webview.disconnecting",
+                "Disconnecting from the server [{0}]",
+                serverItem.name
+              ),
+            },
+            async (progress, token) => {
+              progress.report({ increment: 0 });
+              await doDisconnect(serverItem);
+              progress.report({ increment: 100 });
+            }
           );
         } else {
-          vscode.window.showInformationMessage(
-            localize(
-              "tds.webview.serversView.alreadyConn",
-              "Server is already disconnected"
-            )
-          );
           serverProvider.connectedServerItem = undefined;
         }
       }
@@ -327,7 +304,10 @@ export class ServersExplorer {
                 "tds.webview.serversView.renameServer",
                 "Rename the server"
               ),
-              value: serverItem.label,
+              value:
+                typeof serverItem.label === "string"
+                  ? serverItem.label
+                  : (serverItem.label as vscode.TreeItemLabel).label,
             })
             .then((newName: string) => {
               Utils.updateServerName(serverItem.id, newName);
@@ -358,8 +338,11 @@ export class ServersExplorer {
 
       if (serverId !== undefined && showSucess) {
         vscode.window.showInformationMessage(
-          localize("tds.webview.serversView.serverSaved", "Saved server ") +
+          localize(
+            "tds.webview.serversView.serverSaved",
+            "Serve saved. Name: {0}",
             serverName
+          )
         );
       }
 
@@ -408,6 +391,33 @@ function doFinishConnectProcess(
 
     serverProvider.connectedServerItem = serverItem;
   }
+  runCommandUpdateMonitor();
+  //let isSafeRPO = serverItem.isSafeRPO; // this is not working returning => undefined
+  let isSafeRPO = serverItem.buildVersion.localeCompare("7.00.191205P") > 0;
+  // custom context tds-vscode.isSafeRPO
+  vscode.commands.executeCommand(
+    "setContext",
+    "tds-vscode.isSafeRPO",
+    isSafeRPO
+  );
+}
+
+/*
+ * O comando é registrado na tela do monitor, portanto, caso ela nao sido aberta, o comando nao existira, entao faz a busca antes de mais nada.
+ * Segundo a documentacao, comandos que começam com "_" sao tratados com internos.
+ * doc: https://vshaxe.github.io/vscode-extern/VscodeCommands.html
+ */
+function executeCommand(commandId: string) {
+  return vscode.commands.getCommands(false).then((commands: string[]) => {
+    let index = commands.indexOf(commandId);
+    if (index > -1) {
+      vscode.commands.executeCommand(commandId);
+    }
+  });
+}
+
+function runCommandUpdateMonitor() {
+  executeCommand("_totvs-developer-studio.updateMonitorPanel");
 }
 
 export function connectServer(
@@ -430,24 +440,20 @@ export function connectServer(
       );
     }
 
-    vscode.window.setStatusBarMessage(
-      `Conectando-se ao servidor [${serverItem.name}]`,
-      sendConnectRequest(serverItem, environment, connType).then(
-        (result: ITokenInfo) => {
-          if (result) {
-            if (result.needAuthentication) {
-              serverItem.token = result.token;
-              inputAuthenticationParameters(serverItem, environment);
-            }
-            else {
-              doFinishConnectProcess(serverItem, result.token, environment);
-            }
-          }
-        },
-        (error) => {
-          vscode.window.showErrorMessage(error);
-        }
-      )
+    vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        title: localize(
+          "tds.webview.connecting",
+          "Connecting to the server {0}",
+          serverItem.name
+        ),
+      },
+      async (progress, token) => {
+        progress.report({ increment: 0 });
+        await doConnect(serverItem, environment, connType);
+        progress.report({ increment: 100 });
+      }
     );
   }
 }
@@ -463,31 +469,43 @@ export function authenticate(
       ? ENABLE_CODE_PAGE.CP1251
       : ENABLE_CODE_PAGE.CP1252;
 
-  vscode.window.setStatusBarMessage(
-    `Autenticando usuário [${username}] no servidor [${serverItem.name}]`,
-    sendAuthenticateRequest(
-      serverItem,
-      environment,
-      username,
-      password,
-      enconding
-    )
-      .then(
-        (result: IAuthenticationInfo) => {
-          let token: string = result.token;
-          return result.sucess ? token : "";
-        },
-        (error: any) => {
-          vscode.window.showErrorMessage(error);
-          return false;
-        }
+  vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Window,
+      title: localize(
+        "tds.webview.authenticating_user",
+        "Authenticating user [{0}] in server [{1}]",
+        username,
+        serverItem.name
+      ),
+    },
+    async (progress, token) => {
+      progress.report({ increment: 0 });
+      await sendAuthenticateRequest(
+        serverItem,
+        environment,
+        username,
+        password,
+        enconding
       )
-      .then((token: string) => {
-        if (token) {
-          serverItem.username = username;
-          doFinishConnectProcess(serverItem, token, environment);
-        }
-      })
+        .then(
+          (result: IAuthenticationInfo) => {
+            let token: string = result.token;
+            return result.sucess ? token : "";
+          },
+          (error: any) => {
+            vscode.window.showErrorMessage(error);
+          }
+        )
+        .then((token: string) => {
+          if (token) {
+            serverItem.username = username;
+            doFinishConnectProcess(serverItem, token, environment);
+          }
+        });
+
+      progress.report({ increment: 100 });
+    }
   );
 }
 
@@ -527,9 +545,20 @@ export function reconnectServer(
       );
   }
 
-  vscode.window.setStatusBarMessage(
-    `Reconectando-se ao servidor [${serverItem.name}]`,
-    doReconnect(serverItem, environment, connType)
+  vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Window,
+      title: localize(
+        "tds.webview.reconnecting",
+        "Reconnecting to the server {0}",
+        serverItem.name
+      ),
+    },
+    async (progress, token) => {
+      progress.report({ increment: 0 });
+      await doReconnect(serverItem, environment, connType);
+      progress.report({ increment: 100 });
+    }
   );
 }
 
@@ -558,17 +587,71 @@ function handleError(nodeError: NodeError) {
   vscode.window.showErrorMessage(nodeError.code + ": " + nodeError.message);
 }
 
-export function updateStatusBarItem(
-  selectServer: ServerItem | undefined
-): void {
-  if (selectServer) {
-    totvsStatusBarItem.text = `${selectServer.name} / ${selectServer.environment}`;
-  } else {
-    totvsStatusBarItem.text = localize(
-      "tds.vscode.select_server_environment",
-      "Select server/environment"
-    );
-  }
+async function doDisconnect(serverItem: ServerItem) {
+  await sendDisconnectRequest(serverItem).then(
+    (ti: ITokenInfo) => {
+      if (!ti.sucess) {
+        serverProvider.connectedServerItem = undefined;
+      }
 
-  totvsStatusBarItem.show();
+      executeCommand("_totvs-developer-studio.clearMonitorPanel");
+    },
+    (err: ResponseError<object>) => {
+      serverProvider.connectedServerItem = undefined;
+      handleError(err);
+    }
+  );
+}
+
+async function doValidation(
+  context: vscode.ExtensionContext,
+  serverItem: ServerItem
+) {
+  await sendValidationRequest(serverItem.address, serverItem.port).then(
+    (validationInfo: IValidationInfo) => {
+      //retornou uma versao valida no servidor.
+      const updated = Utils.updateBuildVersion(
+        serverItem.id,
+        validationInfo.build,
+        validationInfo.secure
+      );
+      serverItem.buildVersion = validationInfo.build;
+      if (updated) {
+        //continua a autenticacao.
+        inputConnectionParameters(
+          context,
+          serverItem,
+          ConnTypeIds.CONNT_DEBUGGER,
+          false
+        );
+      }
+      return;
+    },
+    (err: ResponseError<object>) => {
+      vscode.window.showErrorMessage(err.message);
+    }
+  );
+}
+
+async function doConnect(
+  serverItem: ServerItem,
+  environment: string,
+  connType: ConnTypeIds
+) {
+  await sendConnectRequest(serverItem, environment, connType).then(
+    (result: ITokenInfo) => {
+      if (result.sucess) {
+        if (result.needAuthentication) {
+          serverItem.token = result.token;
+          inputAuthenticationParameters(serverItem, environment);
+        } else {
+          doFinishConnectProcess(serverItem, result.token, environment);
+        }
+      }
+      return result.sucess;
+    },
+    (error) => {
+      vscode.window.showErrorMessage(error);
+    }
+  );
 }

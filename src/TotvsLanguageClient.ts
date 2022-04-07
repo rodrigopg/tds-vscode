@@ -22,14 +22,17 @@ import {
   RevealOutputChannelOn,
   ServerOptions,
   ProvideOnTypeFormattingEditsSignature,
+  ProvideDocumentFormattingEditsSignature,
+  ProvideDocumentRangeFormattingEditsSignature,
 } from "vscode-languageclient/lib/main";
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 import { statSync, chmodSync } from "fs";
 import { reconnectLastServer } from "./serversView";
 
 import * as nls from "vscode-nls";
 import { syncSettings } from "./server/languageServerSettings";
 import { TotvsLanguageClientA } from "./TotvsLanguageClientA";
+import Utils from "./utils";
 
 let localize = nls.loadMessageBundle();
 
@@ -81,7 +84,49 @@ export function getLanguageClient(
     })
   );
 
-  let args = ["--language-server"].concat(clientConfig["launchArgs"]);
+  let args = ["--language-server"];
+
+  let config = vscode.workspace.getConfiguration("totvsLanguageServer");
+
+  let behavior = "--enableAutoComplete=";
+  let behaviorConfig = config.get("editor.toggle.autocomplete");
+  if (behaviorConfig) {
+    behavior += behaviorConfig;
+    args = args.concat(behavior);
+  }
+
+  let notificationlevel = "--notificationLevel=";
+  let notificationlevelConfig = config.get("editor.show.notification");
+  if (notificationlevelConfig) {
+    notificationlevel += '"' + notificationlevelConfig + '"';
+    args = args.concat(notificationlevel);
+  }
+
+  let fsencoding = "--fsencoding=";
+  let fsencodingConfig = config.get("filesystem.encoding");
+  if (fsencodingConfig) {
+    fsencoding += fsencodingConfig;
+    args = args.concat(fsencoding);
+  }
+
+  const servers = Utils.getServersConfig();
+  if (servers.includes) {
+    let includesList = servers.includes as Array<string>;
+    let includes = "--includes=";
+    includesList.forEach((includeItem) => {
+      includes += includeItem + ";";
+    });
+    args = args.concat(includes.substring(0, includes.length - 1));
+  }
+
+  let linter = "--linter=";
+  let linterConfig = config.get("editor.linter");
+  if (linter) {
+    linter += linterConfig ? "enabled" : "disabled";
+    args = args.concat(linter);
+  }
+
+  args = args.concat(clientConfig["launchArgs"]);
 
   let env: any = {};
   let kToForward = ["ProgramData", "PATH", "LD_LIBRARY_PATH", "HOME", "USER"];
@@ -124,9 +169,9 @@ export function getLanguageClient(
     rangeBehavior: DecorationRangeBehavior.ClosedClosed,
   };
 
-  let codeLensDecoration = window.createTextEditorDecorationType(
-    decorationOpts
-  );
+  // let codeLensDecoration = window.createTextEditorDecorationType(
+  //  decorationOpts
+  //);
 
   // Options to control the language client
   let clientOptions: LanguageClientOptions = {
@@ -141,7 +186,9 @@ export function getLanguageClient(
     initializationOptions: clientConfig,
     middleware: {
       // provideCodeLenses: provideCodeLens,
-      //provideOnTypeFormattingEdits: provideOnTypeFormatting,
+      provideOnTypeFormattingEdits: provideOnTypeFormatting,
+      provideDocumentFormattingEdits: provideDocumentFormattingEdits,
+      provideDocumentRangeFormattingEdits: provideDocumentRangeFormattingEdits,
     },
     // initializationFailedHandler: (e) => {
     // 	console.log(e);
@@ -156,12 +203,11 @@ export function getLanguageClient(
     .onReady()
     .then(async () => {
       isLSInitialized = true;
+      languageClient.ready = true;
 
       const configADVPL = vscode.workspace.getConfiguration(
         "totvsLanguageServer"
       ); //transformar em configuracao de workspace
-
-      syncSettings();
 
       let isReconnectLastServer = configADVPL.get("reconnectLastServer");
       if (isReconnectLastServer) {
@@ -286,6 +332,27 @@ function displayCodeLens(
   }
 }
 
+function provideDocumentRangeFormattingEdits(
+  this: void,
+  document: TextDocument,
+  range: Range,
+  options: FormattingOptions,
+  token: CancellationToken,
+  next: ProvideDocumentRangeFormattingEditsSignature
+): ProviderResult<TextEdit[]> {
+  return next(document, range, options, token);
+}
+
+function provideDocumentFormattingEdits(
+  this: void,
+  document: TextDocument,
+  options: FormattingOptions,
+  token: CancellationToken,
+  next: ProvideDocumentFormattingEditsSignature
+): ProviderResult<TextEdit[]> {
+  return next(document, options, token);
+}
+
 function provideOnTypeFormatting(
   document: TextDocument,
   position: Position,
@@ -294,13 +361,7 @@ function provideOnTypeFormatting(
   token: CancellationToken,
   next: ProvideOnTypeFormattingEditsSignature
 ): ProviderResult<TextEdit[]> {
+  //const result: vscode.TextEdit[] = [];
 
-  const line: vscode.TextLine = document.lineAt(position.line-1);
-  const text: string = line.text.toLowerCase();
-  const range = line.range;
-  const result: vscode.TextEdit[] = [];
-
-  result.push(vscode.TextEdit.replace(range, text));
-  result.push(vscode.TextEdit.insert(range.start, "AAAAAAA"));
-  return result;
+  return next(document, position, ch, options, token);
 }

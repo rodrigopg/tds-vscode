@@ -1,15 +1,20 @@
-out
-node_modules
-.vscode-test/
-*.vsix
-*.map
-nls.*
-.vscode/mapa timestamp.txt
-totvsls.log
-totvsls-full.log
-totvsls_in.log
-totvsls_out.log
-.editorconfig
-package-lock.json
-tds-vscode-translations-export
 *.log
+*.map
+*.vsix
+.editorconfig
+.vscode-test
+.vscode/mapa timestamp.txt
+~/
+nls.*
+node_modules
+out
+out-test
+package-lock.json
+test-extension/
+test-resources/
+test/resources/**/.vscode/servers.json
+test/resources/**/.vscode/settings.json
+test/resources/**/.vscode/laucher.json
+out-test/
+*.dmp
+src/parser/4gl-parser.js

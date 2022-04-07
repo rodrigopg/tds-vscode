@@ -1,113 +1,166 @@
-import { WorkspaceFolder, DebugConfigurationProvider, DebugConfiguration, CancellationToken, window } from 'vscode';
-import * as vscode from 'vscode';
-import * as Net from 'net';
-import { extractProgram, extractArgs, setDapArgs, getDAP } from './debugConfigs';
-import serverProvider from '../serverItemProvider';
-import * as nls from 'vscode-nls';
+import {
+  WorkspaceFolder,
+  DebugConfigurationProvider,
+  DebugConfiguration,
+  CancellationToken,
+  window,
+} from "vscode";
+import * as vscode from "vscode";
+import * as Net from "net";
+import { setDapArgs, ProgramArgs, extractProgramArgs } from "./debugConfigs";
+import serverProvider, { ServerItem } from "../serverItemProvider";
+import * as nls from "vscode-nls";
+import { canDebug } from "../extension";
 
 const localize = nls.loadMessageBundle();
 
-/*
- * Set the following compile time flag to true if the
- * debug adapter should run inside the extension host.
- * Please note: the test suite does no longer work in this mode.
- */
-const EMBED_DEBUG_ADAPTER = false;
-
 export class TotvsConfigurationProvider implements DebugConfigurationProvider {
-	static type = 'totvs_language_debug';
+  static _TYPE: string = "totvs_language_debug";
+  static _NAME: string = "TOTVS Language Debug (SmartClient)";
+  static _SC_BIN: string = "";
 
-	private _server?: Net.Server;
+  protected _server?: Net.Server;
+  private _connectedServerItem: ServerItem;
 
-	/**
-	 * Massage a debug configuration just before a debug session is being launched,
-	 * e.g. add all missing attributes to the debug configuration.
-	 */
-	//resolveDebugConfiguration(folder: WorkspaceFolder | undefined, config: DebugConfiguration, token?: CancellationToken): ProviderResult<DebugConfiguration> {
-	//async resolveDebugConfiguration(folder: WorkspaceFolder | undefined, config: DebugConfiguration, token?: CancellationToken): Promise<ProviderResult<DebugConfiguration>> {
-	//Parece que mudaram novamente o tipo de retorno dessa funcao, por isso essa nova declaracao.
-	async resolveDebugConfiguration(folder: WorkspaceFolder | undefined, config: DebugConfiguration, token?: CancellationToken): Promise<DebugConfiguration> {
-		const connectedServerItem = serverProvider.connectedServerItem;
+  constructor() {}
 
-		if (connectedServerItem !== undefined) {
-			config.type = TotvsConfigurationProvider.type;
-			config.environment = connectedServerItem.environment;
-			config.token = connectedServerItem.token;
+  /**
+   * Massage a debug configuration just before a debug session is being launched,
+   * e.g. add all missing attributes to the debug configuration.
+   */
+  async resolveDebugConfiguration(
+    folder: WorkspaceFolder | undefined,
+    config: DebugConfiguration,
+    token?: CancellationToken
+  ): Promise<DebugConfiguration> {
+    if (!canDebug()) {
+      return undefined;
+    }
 
-			let workspaceFolders = vscode.workspace.workspaceFolders;
-			if (workspaceFolders) {
-				let wsPaths = new Array(workspaceFolders.length);
-				let i = 0;
-				for (const workspaceFolder of workspaceFolders) {
-					const workspaceFolderPath = workspaceFolder.uri.fsPath;
-					wsPaths[i] = workspaceFolderPath;
-					i++;
-				}
-				config.workspaceFolders = wsPaths;
-			}
+     this._connectedServerItem = serverProvider.connectedServerItem;
 
-			if (!config.cwb || (config.cwb === '')) {
-				config.cwb = vscode.workspace.rootPath;
-				window.showInformationMessage(localize('tds.vscode.cwb_warning', 'Parameter cwb not informed. Setting to {0}', config.cwb));
-			}
+    if (this._connectedServerItem !== undefined) {
+      if (!config.type && !config.request && !config.name) {
+        const editor = window.activeTextEditor;
+        if (editor && editor.document.languageId === "totvs-developer-studio") {
+          this.initialize(config);
+          config.request = "launch";
+          config.program = "${workspaceFolder}/${command:AskForProgramName}";
+        }
+      }
 
-			if (!config.program) {
-				window.showInformationMessage(localize('tds.vscode.program_not_found', "Cannot find a program to debug"));
-				return undefined;	// abort launch
-			}
+      config.environment = this._connectedServerItem.environment;
+      config.token = this._connectedServerItem.token;
 
-			if (config.program === "${command:AskForProgramName}") {
-				const value = await vscode.commands.executeCommand("totvs-developer-studio.getProgramName");
-				if (!value) {
-					window.showInformationMessage(localize('tds.vscode.program_not_found', "Cannot find a program to debug"));
-					return undefined;	// abort launch
-				}
-				config.program = extractProgram(value as string);
-				config.programArguments = extractArgs(value as string);
-			}
+      // se no server conectado houver a informacao de smartclientBin utiliza a informacao
+      if (this._connectedServerItem.smartclientBin) {
+        config.smartclientBin = this._connectedServerItem.smartclientBin;
+      }
 
-			// se no server conectado houver a informacao de smartclientBin utiliza a informacao
-			if (connectedServerItem.smartclientBin) {
-				config.smartclientBin = connectedServerItem.smartclientBin;
-			}
+      if (folder) {
+        config.workspaceFolders = folder;
+      } else {
+        let workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders) {
+          let wsPaths = new Array(workspaceFolders.length);
+          let i = 0;
+          for (const workspaceFolder of workspaceFolders) {
+            const workspaceFolderPath = workspaceFolder.uri.fsPath;
+            wsPaths[i] = workspaceFolderPath;
+            i++;
+          }
+          config.workspaceFolders = wsPaths;
+        }
+      }
 
-			if (EMBED_DEBUG_ADAPTER) {
-				// start port listener on launch of first debug session
-				/*			if (!this._server) {
+      if (!config.cwb || config.cwb === "") {
+        config.cwb = folder.uri.fsPath;
+        window.showInformationMessage(
+          localize(
+            "tds.vscode.cwb_warning",
+            "Parameter CWB not informed. Setting to {0}",
+            config.cwb
+          )
+        );
+      }
 
-								// start listening on a random port
-								this._server = Net.createServer(socket => {
-									const session = new MockDebugSession();
-									session.setRunAsServer(true);
-									session.start(<NodeJS.ReadableStream>socket, socket);
-								}).listen(0);
-							}*/
+      let setDapArgsArr: string[] = [];
+      if (config.logFile) {
+        const ws: string = vscode.workspace.rootPath || "";
+        setDapArgsArr.push(
+          "--log-file=" + config.logFile.replace("${workspaceFolder}", ws)
+        );
+      }
+      if (config.waitForAttach) {
+        setDapArgsArr.push("--wait-for-attach=" + config.waitForAttach);
+      }
 
-				// make VS Code connect to debug server instead of launching debug adapter
-				config.debugServer = 8588;//this._server.address().port;
-			}
+      setDapArgs(setDapArgsArr);
 
-			let setDapArgsArr: string[] =  [];
-			if (config.logFile) {
-				const ws: string = vscode.workspace.rootPath || '';
-				setDapArgsArr.push("--log-file=" + config.logFile.replace('${workspaceFolder}', ws));
-			}
-			if (config.waitForAttach) {
-				setDapArgsArr.push("--wait-for-attach=" + config.waitForAttach);
-			}
-			setDapArgs(setDapArgsArr);
+      return Promise.resolve(config);
+    } else {
+      window.showErrorMessage(
+        localize("tds.vscode.server_not_connected", "No servers connected")
+      );
+      return undefined;
+    }
+  }
 
-			return Promise.resolve(config);
-		} else {
-			window.showErrorMessage(localize('tds.vscode.server_not_connected', "No servers connected"));
-			return null;
-		}
-	}
+  protected initialize(config: DebugConfiguration) {
+    config.type = TotvsConfigurationProvider._TYPE;
+    config.name = TotvsConfigurationProvider._NAME;
+    config.smartclientBin = TotvsConfigurationProvider._SC_BIN;
+  }
 
-	dispose() {
-		if (this._server) {
-			this._server.close();
-		}
-	}
+  protected finalize(config: DebugConfiguration) {
+    return config;
+  }
 
+  resolveDebugConfigurationWithSubstitutedVariables(
+    folder: WorkspaceFolder | undefined,
+    debugConfiguration: DebugConfiguration,
+    token?: CancellationToken
+  ): vscode.ProviderResult<DebugConfiguration> {
+    if (token.isCancellationRequested) {
+      return undefined;
+    }
+
+    const programArgs: ProgramArgs = extractProgramArgs(
+      debugConfiguration.program
+    );
+    if (debugConfiguration.programArguments) {
+      programArgs.args = debugConfiguration.programArguments;
+    }
+
+    if (
+      programArgs.program == "<cancel>" ||
+      programArgs.args?.includes("<cancel>")
+    ) {
+      window.showInformationMessage(
+        localize("tds.vscode.cancel_by_user", "Canceled by user.")
+      );
+      return undefined; // abort launch
+    }
+
+    if (!debugConfiguration.program) {
+      window.showInformationMessage(
+        localize(
+          "tds.vscode.program_not_found",
+          "Cannot find a program to debug"
+        )
+      );
+      return undefined; // abort launch
+    }
+
+    debugConfiguration.program = programArgs.program;
+    debugConfiguration.programArguments = programArgs.args;
+
+    return this.finalize(debugConfiguration);
+  }
+
+  dispose() {
+    if (this._server) {
+      this._server.close();
+    }
+  }
 }

@@ -1,10 +1,13 @@
 import {
   debug,
+  DebugConfiguration,
   DebugSession,
   Disposable,
   extensions,
+  QuickInputButton,
   QuickPick,
   QuickPickItem,
+  Uri,
   window,
 } from "vscode";
 import { statSync, chmodSync } from "fs";
@@ -13,11 +16,11 @@ import * as path from "path";
 import * as nls from "vscode-nls";
 
 const localize = nls.loadMessageBundle();
+const RESOURCES_FOLDER = path.join(__filename, "..", "..", "..", "resources");
 
 let isTableSyncEnabled = false;
 let debugSession: DebugSession | undefined;
 let dapArgs: string[] = [];
-const ignoreValue: string[] = [",", "(", ")"];
 
 export function getDAP() {
   let pathDAP = "";
@@ -53,9 +56,18 @@ export function setDapArgs(dapArgs_: string[]) {
   dapArgs = dapArgs_;
 }
 
+export class ProgramArgs {
+  program: string;
+  args: string[] = [];
+
+  constructor(program: string, args: string[]) {
+    this.program = program;
+    this.args = args;
+  }
+}
+
 class QuickPickProgram implements QuickPickItem {
   label: string;
-  description: string;
   args: string[] = [];
 
   constructor(program: string, args: string[]) {
@@ -65,11 +77,16 @@ class QuickPickProgram implements QuickPickItem {
 
   public setArgs(args: string[]) {
     this.args = args;
-    this.description = this.args.join(" ");
+  }
+
+  get description(): string {
+    return this.args ? `(${this.args.join(", ")})` : "<nil>";
   }
 }
 
-export async function getProgramName() {
+export async function getProgramName(
+  _config: DebugConfiguration
+): Promise<string> {
   const disposables: Disposable[] = [];
 
   let config = undefined;
@@ -79,117 +96,171 @@ export async function getProgramName() {
   } catch (e) {
     Utils.logInvalidLaunchJsonFile(e);
   }
+
   if (!config) {
     return undefined;
   }
 
-  let lastProgramExecuted = "";
+  let lastProgramExecuted = config.lastProgramExecuted || "";
+  lastProgramExecuted =
+    lastProgramExecuted == "<cancel>" ? "" : lastProgramExecuted;
   let lastPrograms: QuickPickProgram[] = [];
 
-  if (config.lastProgramExecuted) {
-    lastProgramExecuted = config.lastProgramExecuted;
-  }
-
   if (config.lastPrograms) {
-    lastPrograms = config.lastPrograms;
+    lastPrograms = config.lastPrograms.map((element: any) => {
+      return new QuickPickProgram(element.label, element.args);
+    });
   } else {
     config.lastPrograms = lastPrograms;
   }
 
+  let programArgs: ProgramArgs = undefined;
+
   try {
-    return await new Promise<string | undefined>((resolve, reject) => {
-      const qp: QuickPick<QuickPickProgram> = window.createQuickPick<
-        QuickPickProgram
-      >();
+    await new Promise<ProgramArgs>((resolve, reject) => {
+      const cancelButton: QuickInputButton = {
+        iconPath: {
+          dark: Uri.file(path.join(RESOURCES_FOLDER, "dark", "cancel.png")),
+          light: Uri.file(path.join(RESOURCES_FOLDER, "light", "cancel.png")),
+        },
+        tooltip: localize("CANCEL_DEBUG", "Cancel Debug "),
+      };
+
+      const qp: QuickPick<QuickPickProgram> =
+        window.createQuickPick<QuickPickProgram>();
+
       qp.title = localize(
         "tds.vscode.getProgramName",
         "Please enter the name of an AdvPL/4GL function"
       );
       qp.items = lastPrograms;
       qp.value = lastProgramExecuted;
+      qp.placeholder = qp.title;
       qp.matchOnDescription = true;
-      qp.placeholder = localize(
-        "tds.vscode.getProgramName",
-        "Please enter the name of an AdvPL/4GL function"
-      );
+      qp.ignoreFocusOut = true;
+      qp.buttons = [cancelButton];
+      qp.canSelectMany = false;
 
       disposables.push(
+        qp.onDidTriggerButton((e: QuickInputButton) => {
+          qp.hide();
+          programArgs = new ProgramArgs("<cancel>", []);
+          resolve(programArgs);
+        }),
         qp.onDidChangeSelection((selection) => {
-          qp.value = selection[0].label + " " + selection[0].description;
-        })
-      );
-
-      disposables.push(
-        qp.onDidAccept((e) => {
-          if (qp.value) {
-            const program = extractProgram(qp.value);
-
-            if (program && program.length > 0) {
-              const args = extractArgs(qp.value);
-              const argsAux = args.join(" ");
-
-              config.lastProgramExecuted = program;
-
-              const find: boolean = config.lastPrograms.some(
-                (element: QuickPickProgram) => {
-                  return (
-                    element.label.toLowerCase() === program.toLowerCase() &&
-                    element.description === argsAux
-                  );
-                }
-              );
-
-              if (!find) {
-                config.lastPrograms.push(new QuickPickProgram(program, args));
-              }
-              Utils.saveLaunchConfig(config);
-            }
-          } else {
-            qp.value = "";
+          programArgs = new ProgramArgs(selection[0].label, selection[0].args);
+          resolve(programArgs);
+        }),
+        qp.onDidAccept(() => {
+          if (!programArgs) {
+            programArgs = extractProgramArgs(qp.value);
           }
-          resolve(qp.value);
-          qp.dispose();
+          resolve(programArgs);
         })
       );
 
-      disposables.push(
-        qp.onDidHide((e) => {
-          resolve("");
-          qp.dispose();
-        })
-      );
+      disposables.push(qp);
 
       qp.show();
     });
   } finally {
     disposables.forEach((d) => d.dispose());
   }
-}
 
-export function extractProgram(value: string): string {
-  const groups: string[] = value.split(/([\w\.\-]+)+/i).filter((value) => {
-    return value && value.trim().length > 0;
-  });
-  return groups && groups.length > 0 ? groups[0] : "";
-}
+  if (programArgs && programArgs.program !== "<cancel>") {
+    const find: boolean = config.lastPrograms.some(
+      (element: QuickPickProgram) => {
+        return (
+          element.label.toLowerCase() === programArgs.program.toLowerCase() &&
+          JSON.stringify(element.args) === JSON.stringify(programArgs.args)
+        );
+      }
+    );
 
-export function extractArgs(value: string): string[] {
-  const groups: string[] = value
-    .replace(/-a=/gi, "")
-    .split(/([\w\.\-]+)+/i)
-    .filter((value) => {
-      return (
-        value &&
-        value.trim().length > 0 &&
-        !ignoreValue.some((char) => value.trim() === char)
+    if (!find) {
+      config.lastPrograms.push(
+        new QuickPickProgram(programArgs.program, programArgs.args)
       );
-    });
+    }
+  }
 
-  return groups && groups.length > 1 ? groups.slice(1) : [];
+  config.lastProgramExecuted = programArgs.program;
+  config.lastProgramArgumens = programArgs.args;
+  Utils.saveLaunchConfig(config);
+
+  return `${config.lastProgramExecuted} ${
+    programArgs.args ? programArgs.args.join(", ") : ""
+  }`;
 }
 
-export async function getProgramArguments() {
-  return await pickProgramArguments();
+const programArgsRegex = /^([\w\.\-\_]+)(\(?[^)\n]*\)?)?/i;
+
+export function extractProgramArgs(value: string): ProgramArgs {
+  let programArgs: ProgramArgs;
+
+  if (value) {
+    let testRegex = value.trim().match(programArgsRegex);
+    if (testRegex[0]) {
+      let args: string[];
+      if (testRegex.length >= 3 && testRegex[2]) {
+        args = extractArgs(testRegex[2]);
+      }
+      programArgs = new ProgramArgs(testRegex[1], args);
+    }
+  }
+  return programArgs;
+}
+
+function extractArgs(value: string): string[] {
+  let args: string[];
+  if (value) {
+    value = value.trim();
+    if (value.length > 0) {
+      args = [];
+      value = value.replace("(", "").replace(")", "").trim();
+      if (value.length > 0) {
+        let splited: string[];
+        if (value.toLowerCase().indexOf("-a=") >= 0) {
+          splited = value.split(/\s/);
+          splited.forEach((element) => {
+            if (element.length > 0) {
+              element = element.replace("-a=", "").replace("-A=", "").trim();
+              if (element.length == 0) {
+                element = undefined;
+              } else if (
+                element.length > 1 &&
+                ((element.startsWith('"') && element.endsWith('"')) ||
+                  (element.startsWith("'") && element.endsWith("'")))
+              ) {
+                element = element.substring(1, element.length - 1);
+              }
+              args.push(element);
+            }
+          });
+        } else {
+          splited = value.split(/,/);
+          splited.forEach((element) => {
+            element = element.trim();
+            if (element.length == 0) {
+              element = undefined;
+            } else if (
+              element.length > 1 &&
+              ((element.startsWith('"') && element.endsWith('"')) ||
+                (element.startsWith("'") && element.endsWith("'")))
+            ) {
+              element = element.substring(1, element.length - 1);
+            }
+            args.push(element);
+          });
+        }
+      }
+    }
+  }
+  return args;
+}
+
+export async function getProgramArguments(config: DebugConfiguration) {
+  return await pickProgramArguments(config);
 }
 
 export function toggleTableSync() {
@@ -270,13 +341,15 @@ function sendChangeTableSyncSetting(): void {
   }
 }
 
-async function pickProgramArguments() {
+async function pickProgramArguments(
+  _config: DebugConfiguration
+): Promise<string | undefined> {
   const disposables: Disposable[] = [];
 
   let config = undefined;
 
   try {
-    config = Utils.getLaunchConfigFile();
+    config = Utils.getLaunchConfig();
   } catch (e) {
     Utils.logInvalidLaunchJsonFile(e);
   }
@@ -285,27 +358,39 @@ async function pickProgramArguments() {
     return undefined;
   }
 
-  let lastProgramExecuted = "";
-  let lastPrograms: QuickPickProgram[] = [];
-
-  if (config.lastProgramExecuted) {
-    lastProgramExecuted = config.lastProgramExecuted;
+  let lastProgramExecuted = config.lastProgramExecuted || "";
+  if (lastProgramExecuted == "<cancel>") {
+    return undefined;
   }
+  let lastArgumentsExecuted = config.lastProgramArgumens
+    ? config.lastProgramArgumens
+    : []
 
-  lastPrograms = config.lastPrograms.filter((element: QuickPickProgram) => {
-    return element.label.toLowerCase() === lastProgramExecuted.toLowerCase();
-  });
+  let lastPrograms: QuickPickProgram[] = config.lastPrograms
+    .filter((element: QuickPickProgram) => {
+      return (
+        element.label.toLowerCase() === lastProgramExecuted.toLowerCase() &&
+        element.args
+      );
+    })
+    .map((element: any) => {
+      return new QuickPickProgram(element.args.join(", "), element.args);
+    });
 
-  lastPrograms.forEach((element) => {
-    element.label = element.description;
-    element.description = "";
-  });
+  let selectArgs: string[] = [];
 
   try {
-    return await new Promise<string[] | undefined>((resolve, reject) => {
-      const qp: QuickPick<QuickPickProgram> = window.createQuickPick<
-        QuickPickProgram
-      >();
+    const cancelButton: QuickInputButton = {
+      iconPath: {
+        dark: Uri.file(path.join(RESOURCES_FOLDER, "dark", "cancel.png")),
+        light: Uri.file(path.join(RESOURCES_FOLDER, "light", "cancel.png")),
+      },
+      tooltip: localize("CANCEL_DEBUG", "Cancel Debug "),
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const qp: QuickPick<QuickPickProgram> =
+        window.createQuickPick<QuickPickProgram>();
       qp.title = localize(
         "tds.vscode.getProgramArguments",
         "Enter comma-separated list of arguments"
@@ -315,47 +400,59 @@ async function pickProgramArguments() {
         "tds.vscode.getProgramArguments",
         "Enter comma-separated list of arguments"
       );
+      qp.ignoreFocusOut = true;
+      qp.canSelectMany = false;
+      qp.buttons = [cancelButton];
+      qp.value = lastArgumentsExecuted?.join(", ");
 
       disposables.push(
+        qp.onDidTriggerButton((e: QuickInputButton) => {
+          qp.hide();
+          selectArgs = ["<cancel>"];
+          resolve();
+        }),
         qp.onDidChangeSelection((selection) => {
           if (selection[0]) {
-            qp.value = selection[0].label;
+            selectArgs = selection[0].args;
+            resolve();
           }
-        })
-      );
-
-      disposables.push(
+        }),
         qp.onDidAccept((e) => {
-          if (qp.value) {
-            qp.hide();
+          const program = lastProgramExecuted;
+
+          if (!selectArgs || selectArgs.length == 0) {
+            selectArgs = extractArgs(qp.value);
+          }
+          if (selectArgs) {
+            const find: boolean = config.lastPrograms.some(
+              (element: QuickPickProgram) => {
+                return (
+                  element.label.toLowerCase() ===
+                    lastProgramExecuted.toLowerCase() &&
+                  JSON.stringify(element.args) === JSON.stringify(selectArgs)
+                );
+              }
+            );
+
+            if (!find) {
+              config.lastPrograms.push(
+                new QuickPickProgram(program, selectArgs)
+              );
+            }
+            config.lastProgramArgs = selectArgs;
+            Utils.saveLaunchConfig(config);
+            resolve();
           }
         })
       );
 
-      qp.onDidHide(() => {
-        const program = lastProgramExecuted;
-        const description = qp.value.toLowerCase();
-
-        const args = extractArgs(qp.value);
-
-        const find: boolean = config.lastPrograms.some(
-          (element: QuickPickProgram) => {
-            return element.label.toLowerCase() === description;
-          }
-        );
-
-        if (!find) {
-          config.lastPrograms.push(new QuickPickProgram(program, args));
-          Utils.saveLaunchConfig(config);
-        }
-
-        resolve(args);
-        qp.dispose();
-      });
+      disposables.push(qp);
 
       qp.show();
     });
   } finally {
     disposables.forEach((d) => d.dispose());
   }
+
+  return selectArgs.join(", ");
 }

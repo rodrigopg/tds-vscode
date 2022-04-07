@@ -4,15 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 const gulp = require("gulp");
+var run = require('gulp-run');
 const path = require("path");
-
+const vsce = require("vsce");
 const ts = require("gulp-typescript");
 const typescript = require("typescript");
 const sourcemaps = require("gulp-sourcemaps");
 const del = require("del");
-//const runSequence = require("run-sequence");
+
 const es = require("event-stream");
-const vsce = require("vsce");
 const nls = require("vscode-nls-dev");
 const log = require("gulp-util").log;
 const webpack = require("webpack-stream");
@@ -31,11 +31,15 @@ const languages = [
 ];
 
 const cleanTask = function () {
-  return del(["out/**", "package.nls.*.json", "tds-vscode-*.vsix"]);
+  return del(["out/**", "out-test/**", "package.nls.*.json", "tds-vscode-*.vsix", "totvs.tds-vscode*"]);
 };
 
 const internalCompileTask = function () {
   return doCompile(false);
+};
+
+const internalCompileWebpack = function () {
+  return run('npm run compile:views').exec();
 };
 
 const internalNlsCompileTask = function () {
@@ -49,14 +53,15 @@ const addI18nTask = function () {
     .pipe(gulp.dest("."));
 };
 
-const webPack = function () {
-  return gulp
-    .src("src/entry.js")
-    .pipe(webpack(require("./webpack.config.js")))
-    .pipe(gulp.dest("dist/"));
-};
+// const webPack = function () {
+//   return gulp
+//     .src("src/entry.js")
+//     .pipe(webpack(require("./webpack.config.js")))
+//     .pipe(gulp.dest("dist/"));
+// };
 
-const buildTask = gulp.series(cleanTask, internalNlsCompileTask, addI18nTask);
+
+const buildTask = gulp.series(cleanTask, internalNlsCompileTask, addI18nTask, internalCompileWebpack);
 
 const doCompile = function (buildNls) {
   var r = tsProject
@@ -96,9 +101,34 @@ const vscePublishTask = function () {
   return vsce.publish();
 };
 
+const vscePrereleaseTask = function (done) {
+  process.stderr.write("\n*****\nExecute no terminal:\n\tvsce publish --pre-release\n*****\n")
+  return done();
+};
+
 const vscePackageTask = function () {
   return vsce.createVSIX();
 };
+
+const startSmartClient = function (done) {
+  const { spawn } = require("child_process");
+  const smartclient = "M:\\protheus\\smartClient\\20-3-0-2\\smartclient.exe";
+  const args = ["-m", "-c=ssl", "-e=P20-12-1-33", "-p=sigafat"];
+
+  for (let index = 0; index < 75; index++) {
+    spawn(smartclient, [...args], { cwd: "M:\\protheus\\smartClient\\20-3-0-2" });
+  }
+
+  done();
+}
+
+gulp.task("startSmartClient", gulp.series(startSmartClient));
+
+gulp.task("publish", gulp.series(buildTask, vscePublishTask));
+
+gulp.task("prerelease", gulp.series(buildTask, vscePrereleaseTask));
+
+gulp.task("package", gulp.series(buildTask, vscePackageTask));
 
 gulp.task("default", buildTask);
 
@@ -107,10 +137,6 @@ gulp.task("clean", cleanTask);
 gulp.task("compile", gulp.series(cleanTask, internalCompileTask));
 
 gulp.task("build", buildTask);
-
-gulp.task("publish", gulp.series(buildTask, vscePublishTask));
-
-gulp.task("package", gulp.series(buildTask, vscePackageTask));
 
 gulp.task(
   "export-i18n",
@@ -142,7 +168,7 @@ gulp.task("i18n-import", (done) => {
 });
 
 function runTX(prefix, args) {
-  const { execFile } = require("child_process");
+  const { execFile, spawn } = require("child_process");
 
   const ls = execFile("C:\\Python27\\Scripts\\tx.exe", [, /*"-d"*/ ...args]);
 

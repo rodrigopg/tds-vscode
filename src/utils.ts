@@ -1,13 +1,15 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
-import * as stripJsonComments from "strip-json-comments";
 import * as cheerio from "cheerio";
 import * as ini from "ini";
 import * as nls from "vscode-nls";
 import { languageClient } from "./extension";
 import { EnvSection, ServerItem } from "./serverItemProvider";
 import { Authorization, CompileKey } from "./compileKey/compileKey";
+import { changeSettings } from "./server/languageServerSettings";
+import { IRpoToken } from "./rpoToken";
+import stripJsonComments from "strip-json-comments";
 
 const homedir = require("os").homedir();
 const localize = nls.loadMessageBundle();
@@ -52,6 +54,13 @@ export default class Utils {
   }
 
   /**
+   * Subscrição para evento de token de RPO.
+   */
+  static get onDidRpoTokenSelected(): vscode.Event<void> {
+    return Utils._onDidRpoTokenSelected.event;
+  }
+
+  /**
    * Emite a notificação de seleção de servidor/ambiente
    */
   private static _onDidSelectedServer = new vscode.EventEmitter<ServerItem>();
@@ -62,9 +71,14 @@ export default class Utils {
   private static _onDidSelectedKey = new vscode.EventEmitter<CompileKey>();
 
   /**
+   * Emite a notificação de token de RPO
+   */
+  private static _onDidRpoTokenSelected = new vscode.EventEmitter<void>();
+
+  /**
    * Gera um id de servidor
    */
-  static generateRandomID() {
+  public static generateRandomID() {
     return (
       Math.random().toString(36).substring(2, 15) +
       Date.now().toString(36) +
@@ -73,9 +87,17 @@ export default class Utils {
   }
 
   /**
+   * Troca o local da salva de servers.json
+   */
+  static toggleWorkspaceServerConfig() {
+    const config = vscode.workspace.getConfiguration("totvsLanguageServer");
+    config.update("workspaceServerConfig", !this.isWorkspaceServerConfig());
+  }
+
+  /**
    * Pegar o arquivo servers.json da .vscode (workspace)?
    */
-  static workspaceServerConfig() {
+  static isWorkspaceServerConfig(): boolean {
     let config = vscode.workspace.getConfiguration("totvsLanguageServer");
     return config.get("workspaceServerConfig");
   }
@@ -84,31 +106,27 @@ export default class Utils {
    * Retorna o path completo do servers.json
    */
   static getServerConfigFile() {
-    return this.workspaceServerConfig()
-      ? path.join(this.getVSCodePath(), "servers.json")
-      : homedir + "/.totvsls/servers.json";
+    return path.join(this.getServerConfigPath(), "servers.json");
   }
 
   /**
    * Retorna o path de onde deve ficar o servers.json
    */
   static getServerConfigPath() {
-    return this.workspaceServerConfig()
+    return this.isWorkspaceServerConfig()
       ? this.getVSCodePath()
-      : homedir + "/.totvsls";
+      : path.join(homedir, "/.totvsls");
   }
 
   /**
    * Retorna o path completo do launch.json
    */
   static getLaunchConfigFile() {
-    let rootPath: string = vscode.workspace.rootPath || process.cwd();
-
-    return path.join(rootPath, ".vscode", "launch.json");
+    return path.join(this.getVSCodePath(), "launch.json");
   }
 
   /**
-   * Retorna o path da pastar .vscode dentro do workspace
+   * Retorna o path da pasta .vscode dentro do workspace
    */
   static getVSCodePath() {
     let rootPath: string = vscode.workspace.rootPath || process.cwd();
@@ -248,11 +266,11 @@ export default class Utils {
 
         servers.connectedServer = element;
         servers.lastConnectedServer = element.id;
-        Utils._onDidSelectedServer.fire(element);
       }
     });
 
     Utils.persistServersInfo(servers);
+    Utils._onDidSelectedServer.fire(servers.connectedServer);
   }
 
   /**
@@ -340,27 +358,29 @@ export default class Utils {
    * Deleta o servidor logado por ultimo do servers.json
    */
   static deleteServer(id: string) {
-    const confirmationMessage = "Tem certeza que deseja excluir este servidor?";
-    const optionYes = "Sim";
-    const optionNo = "Não";
-    vscode.window.showWarningMessage(confirmationMessage, optionYes, optionNo).then(clicked => {
-			if (clicked === optionYes) {
-        const allConfigs = Utils.getServersConfig();
+    const confirmationMessage = "Are you sure want to delete this server?";
+    const optionYes = "Yes";
+    const optionNo = "No";
+    vscode.window
+      .showWarningMessage(confirmationMessage, optionYes, optionNo)
+      .then((clicked) => {
+        if (clicked === optionYes) {
+          const allConfigs = Utils.getServersConfig();
 
-        if (allConfigs.configurations) {
-          const configs = allConfigs.configurations;
+          if (allConfigs.configurations) {
+            const configs = allConfigs.configurations;
 
-          configs.forEach((element) => {
-            if (element.id === id) {
-              const index = configs.indexOf(element, 0);
-              configs.splice(index, 1);
-              Utils.persistServersInfo(allConfigs);
-              return;
-            }
-          });
+            configs.forEach((element) => {
+              if (element.id === id) {
+                const index = configs.indexOf(element, 0);
+                configs.splice(index, 1);
+                Utils.persistServersInfo(allConfigs);
+                return;
+              }
+            });
+          }
         }
-      }
-		});
+      });
   }
 
   /**
@@ -384,7 +404,7 @@ export default class Utils {
    * Grava no arquivo launch.json uma nova configuracao de launchs
    * @param JSONServerInfo
    */
-  static persistLaunchsInfo(JSONLaunchInfo) {
+  static persistLaunchInfo(JSONLaunchInfo) {
     let fs = require("fs");
     fs.writeFileSync(
       Utils.getLaunchConfigFile(),
@@ -466,10 +486,42 @@ export default class Utils {
     const servers = Utils.getServersConfig();
 
     if (servers.connectedServer.id) {
-      return servers.connectedServer;
+      // busca sempre pelo ID pois pode ter ocorrido alguma alteração nas configurações do servidor conectado
+      return Utils.getServerById(servers.connectedServer.id);
     } else {
       return "";
     }
+  }
+
+  static getAuthorizationToken(server: ServerItem): string {
+    let authorizationToken: string = "";
+    let isSafeRPOServer: boolean = Utils.isSafeRPO(server);
+    const permissionsInfos: IRpoToken | CompileKey = isSafeRPOServer
+      ? Utils.getRpoTokenInfos()
+      : Utils.getPermissionsInfos();
+    if (permissionsInfos) {
+      if (isSafeRPOServer) {
+        authorizationToken = (<IRpoToken>permissionsInfos).token;
+      } else {
+        authorizationToken = (<CompileKey>permissionsInfos).authorizationToken;
+      }
+    }
+    return authorizationToken;
+  }
+
+  static getRpoTokenInfos(): IRpoToken {
+    const servers = Utils.getServersConfig();
+
+    return servers ? servers.rpoToken : undefined;
+  }
+
+  static saveRpoTokenInfos(infos: IRpoToken) {
+    const config = Utils.getServersConfig();
+
+    config.rpoToken = infos;
+
+    Utils.persistServersInfo(config);
+    //Utils._onDidSelectedKey.fire(infos);
   }
 
   static getPermissionsInfos(): CompileKey {
@@ -514,38 +566,49 @@ export default class Utils {
     server: any = undefined
   ): Array<string> {
     let includes: Array<string>;
-    if (
-      server !== undefined &&
-      server.includes !== undefined &&
-      server.includes.length > 0
-    ) {
+    // se houver includes de servidor utiliza, caso contrario utiliza o global
+    if (server && server.includes && server.includes.length > 0) {
       includes = server.includes as Array<string>;
     } else {
       const servers = Utils.getServersConfig();
       includes = servers.includes as Array<string>;
     }
 
-    if (includes.toString()) {
+    if (includes.length > 0) {
       if (absolutePath) {
-        const ws: string = vscode.workspace.rootPath || "";
+        // resolve caminhos relativos ao workspace
+        let ws: string = "";
+
+        if (vscode.window.activeTextEditor) {
+          const workspaceFolder: vscode.WorkspaceFolder =
+            vscode.workspace.getWorkspaceFolder(
+              vscode.window.activeTextEditor.document.uri
+            );
+          if (workspaceFolder) {
+            ws = workspaceFolder.uri.fsPath;
+          }
+        }
+
         includes.forEach((value, index, elements) => {
           if (value.startsWith(".")) {
             value = path.resolve(ws, value);
           } else {
             value = path.resolve(value.replace("${workspaceFolder}", ws));
           }
-
+          elements[index] = value;
+        });
+        // filtra diretorios invalidos e nao encontrados
+        includes = includes.filter(function (value) {
           try {
             const fi: fs.Stats = fs.lstatSync(value);
-            if (!fi.isDirectory) {
+            if (!fi.isDirectory()) {
               const msg: string = localize(
                 "tds.webview.utils.reviewList",
                 "Review the folder list in order to search for settings (.ch). Not recognized as folder: {0}",
                 value
               );
               vscode.window.showWarningMessage(msg);
-            } else {
-              elements[index] = value;
+              return false;
             }
           } catch (error) {
             const msg: string = localize(
@@ -553,10 +616,10 @@ export default class Utils {
               "Review the folder list in order to search for settings (.ch). Invalid folder: {0}",
               value
             );
-            console.log(error);
             vscode.window.showWarningMessage(msg);
-            elements[index] = "";
+            return false;
           }
+          return true;
         });
       }
     } else {
@@ -594,7 +657,17 @@ export default class Utils {
   /**
    * Cria o arquivo launch.json caso ele nao exista.
    */
-  static createLaunchConfig() {
+  static createLaunchConfig(launchInfo: any) {
+
+    if(launchInfo === undefined) {
+      launchInfo = {
+        type: "totvs_language_debug",
+        request: "launch",
+        cwb: "${workspaceRoot}",
+        name: "TOTVS Language Debug",
+      };
+    }
+
     let launchConfig = undefined;
     try {
       launchConfig = Utils.getLaunchConfig();
@@ -609,9 +682,12 @@ export default class Utils {
 
           let pkg = ext.packageJSON;
           let contributes = pkg["contributes"];
+          //const regexp: RegExp = /totvs_language_.*debug/i;
           let debug = (contributes["debuggers"] as any[]).filter(
             (element: any) => {
-              return element.type === "totvs_language_debug";
+              //return regexp.exec(element.type) ? false : true;
+              //return element.type === "totvs_language_debug";
+              return element.type === launchInfo.type;
             }
           );
 
@@ -651,32 +727,35 @@ export default class Utils {
       Utils.logInvalidLaunchJsonFile(e);
     }
   }
-  /**
-   *Recupera um servidor pelo ID informado.
-   * @param ID ID do servidor que sera selecionado.
-   */
-  static getServerForID(ID: string) {
-    let server;
-    const allConfigs = Utils.getServersConfig();
 
-    if (allConfigs.configurations) {
-      const configs = allConfigs.configurations;
+  // Duplicado: Usar o getServerById
+  // /**
+  //  *Recupera um servidor pelo ID informado.
+  //  * @param ID ID do servidor que sera selecionado.
+  //  */
+  // static getServerForID(ID: string) {
+  //   let server;
+  //   const allConfigs = Utils.getServersConfig();
 
-      configs.forEach((element) => {
-        if (element.id === ID) {
-          server = element;
-          if (server.environments === undefined) {
-            server.environments = [];
-          }
-        }
-      });
-    }
-    return server;
-  }
+  //   if (allConfigs.configurations) {
+  //     const configs = allConfigs.configurations;
+
+  //     configs.forEach((element) => {
+  //       if (element.id === ID) {
+  //         server = element;
+  //         if (server.environments === undefined) {
+  //           server.environments = [];
+  //         }
+  //       }
+  //     });
+  //   }
+  //   return server;
+  // }
 
   /**
    *Recupera um servidor pelo id informado.
    * @param id id do servidor alvo.
+   * @param serversConfig opcional, se omitido utiliza o padrao
    */
   static getServerById(
     id: string,
@@ -742,12 +821,20 @@ export default class Utils {
   /**
    *Salva uma nova configuracao de include.
    */
-  static saveIncludePath(path) {
+  static saveIncludePath(includePath) {
     const servers = Utils.getServersConfig();
 
-    servers.includes = path;
+    servers.includes = includePath;
 
     Utils.persistServersInfo(servers);
+
+    let includes = "";
+    includePath.forEach((includeItem) => {
+      includes += includeItem + ";";
+    });
+    changeSettings({
+      changeSettingInfo: { scope: "advpls", key: "includes", value: includes },
+    });
   }
 
   /**
@@ -795,6 +882,27 @@ export default class Utils {
     return result;
   }
 
+  static updatePatchGenerateDir(id: string, patchGenerateDir: string) {
+    let result = false;
+    if (
+      !id ||
+      id.length == 0 ||
+      !patchGenerateDir ||
+      patchGenerateDir.length == 0
+    ) {
+      return result;
+    }
+    const serverConfig = Utils.getServersConfig();
+    serverConfig.configurations.forEach((element) => {
+      if (element.id === id) {
+        element.patchGenerateDir = patchGenerateDir;
+        Utils.persistServersInfo(serverConfig);
+        result = true;
+      }
+    });
+    return result;
+  }
+
   static readCompileKeyFile(path): Authorization {
     if (fs.existsSync(path)) {
       const parseIni = ini.parse(fs.readFileSync(path, "utf-8").toLowerCase()); // XXX toLowerCase??
@@ -819,17 +927,15 @@ export default class Utils {
     let notificationLevel = config.get("editor.show.notification");
     switch (messageType) {
       case MESSAGETYPE.Error:
-        languageClient !== undefined
-          ? languageClient.error(message)
-          : console.log(message);
+        console.log(message);
+        languageClient?.error(message);
         if (showDialog && notificationLevel !== "none") {
           vscode.window.showErrorMessage(message);
         }
         break;
       case MESSAGETYPE.Info:
-        languageClient !== undefined
-          ? languageClient.info(message)
-          : console.log(message);
+        console.log(message);
+        languageClient?.info(message);
         if (
           (showDialog && notificationLevel === "all") ||
           notificationLevel === "errors warnings and infos"
@@ -838,9 +944,8 @@ export default class Utils {
         }
         break;
       case MESSAGETYPE.Warning:
-        languageClient !== undefined
-          ? languageClient.warn(message)
-          : console.log(message);
+        console.log(message);
+        languageClient?.warn(message);
         if (
           showDialog &&
           (notificationLevel === "all" ||
@@ -852,11 +957,10 @@ export default class Utils {
         break;
       case MESSAGETYPE.Log:
         let time = Utils.timeAsHHMMSS(new Date());
-        languageClient !== undefined
-          ? languageClient.outputChannel.appendLine(
-              "[Log   + " + time + "] " + message
-            )
-          : console.log(message);
+        console.log(message);
+        languageClient?.outputChannel.appendLine(
+          "[Log   + " + time + "] " + message
+        );
         if (showDialog && notificationLevel === "all") {
           vscode.window.showInformationMessage(message);
         }
@@ -866,8 +970,7 @@ export default class Utils {
 
   static logInvalidLaunchJsonFile(e) {
     Utils.logMessage(
-      `Ocorreu um problema ao ler o arquivo launch.json
-		(O arquivo ainda pode estar funcional, porém verifique-o para evitar comportamentos indesejados): ${e}`,
+      `There was a problem reading the launch.json file. (The file may still be functional, but check it to avoid unwanted behavior): ${e}`,
       MESSAGETYPE.Warning,
       true
     );
@@ -980,6 +1083,7 @@ export default class Utils {
   // const logix = config.get("4gl")["extensions"];
 
   private static advpl: string[] = [
+    ".th",
     ".ch",
     ".prw",
     ".prg",
@@ -1033,11 +1137,18 @@ export default class Utils {
       });
     }
   }
+
+  static isSafeRPO(server: ServerItem): boolean {
+    if (server && server.buildVersion) {
+      return server.buildVersion.localeCompare("7.00.191205P") > 0;
+    }
+    return false;
+  }
 }
 
 function sampleServer(): any {
   return {
-    version: "0.2.0",
+    version: "0.2.1",
     includes: [""],
     permissions: {
       authorizationtoken: "",
@@ -1052,13 +1163,13 @@ function sampleServer(): any {
 export function groupBy<T, K>(list: T[], getKey: (item: T) => K) {
   const map = new Map<K, T[]>();
   list.forEach((item) => {
-      const key = getKey(item);
-      const collection = map.get(key);
-      if (!collection) {
-          map.set(key, [item]);
-      } else {
-          collection.push(item);
-      }
+    const key = getKey(item);
+    const collection = map.get(key);
+    if (!collection) {
+      map.set(key, [item]);
+    } else {
+      collection.push(item);
+    }
   });
   return Array.from(map.values());
 }

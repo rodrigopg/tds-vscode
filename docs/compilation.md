@@ -3,12 +3,18 @@
 > Requisitos
 >
 > - servidor/ambiente conectado
-> - usuário autenticado (se necessário)
+> - usuário autenticado (se requerido)
 > - pastas para buscas de arquivos de definição (_includes_)
 > - acesso exclusivo ao _RPO_
 > - chave de compilação (apenas para _functions_ e _main functions_)
 
 > Arquivos fontes 4GL ignoram a pasta para buscas.
+
+## SOBRE O USO DE CHAVES E TOKENS DE COMPILAÇÃO
+
+As chaves de compilação ou _tokens_ de compilação empregados na construção do _Protheus_ e suas funcionalidades, são de uso restrito dos _desenvolvedores_ de cada módulo.
+
+Em caso de mau uso destas chaves ou tokens, por qualquer _outra parte_, que não a referida acima, a mesma irá se responsabilizar, direta ou regressivamente, única e exclusivamente, por todos os prejuízos, perdas, danos, indenizações, multas, condenações judiciais, arbitrais e administrativas e quaisquer outras despesas relacionadas ao mau uso, causados tanto à TOTVS quanto a terceiros, eximindo a TOTVS de toda e qualquer responsabilidade.
 
 ## Compilando fonte do editor corrente
 
@@ -36,6 +42,16 @@ Após a compilação de múltiplos arquivos, exite a opção de abrir uma tabela
 Se confirma, uma tabela de resultados semelhante a abaixo será exibida, ordenada pela coluna de resultado.
 
 ![TableCompileResult](./compile/CompileResults.PNG)
+
+## Acesso exclusivo ao _RPO_
+
+Para compilar necessitamos de acesso exclusivo ao RPO. Caso contrário, o Application Server retornará um erro de:
+
+> It wasn't possible to obtain exclusive access to the objects repository
+
+Nesse caso você precisará desconectar todos os usuário (inclusive JOBS) que estejam acessando o _RPO_.
+
+Uma forma mais simples é configurar a chave [buildKillUser](https://centraldeatendimento.totvs.com/hc/pt-br/articles/360018481631-MP-ADVPL-ENCERRAR-TODAS-AS-CONEX%C3%95ES-QUANDO-SOLICITADO-UMA-COMPILA%C3%87%C3%83O-) no Application Server e ele fará a desconexão de todos os usuários (e JOBS) antes de efetuar a compilação.
 
 ## Configurações de Compilação
 
