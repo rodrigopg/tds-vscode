@@ -13,6 +13,7 @@ import path = require("path");
 import { PROJECT_FOLDER } from "../scenario";
 import { delay, DELAY_LONG, DEFAULT_DELAY } from "../helper";
 import { expect } from "chai";
+import { Children } from "react";
 
 const TYPE_TITLE = {
   totvs_language_debug: "TOTVS Language Debug",
@@ -75,7 +76,7 @@ export class DebugPageObject extends ViewPageObject<DebugView> {
 
     if (!fse.existsSync(launchJsonFile)) {
       await this.addLauncher(type, name, smartClientBin);
-      await delay(DEFAULT_DELAY);
+      await delay();
     }
 
     const laucher: any = fse.readJSONSync(launchJsonFile);
@@ -92,11 +93,12 @@ export class DebugPageObject extends ViewPageObject<DebugView> {
         cwb: "${workspaceFolder}",
         isMultiSession: true,
         enableTableSync: true,
+        //waitForAttach: 8000, //os testes aguardam 10 segundos, senão dá erro
       },
     ];
 
     fse.writeJSONSync(launchJsonFile, laucher);
-    await delay(DEFAULT_DELAY);
+    await delay();
 
     return true;
   }
@@ -152,8 +154,15 @@ export class DebugPageObject extends ViewPageObject<DebugView> {
   }
 
   private async getVariables(
-    targetScope: string,
-    targetName: string[]
+    targetScope:
+      | "Local"
+      | "Private"
+      | "Static"
+      | "Public"
+      | "Modular"
+      | "Global",
+    targetName: string[],
+    getChildrenElements: boolean = false
   ): Promise<VariablePO[]> {
     const section: ViewSection = await this.getSection("Variables");
     const result: VariablePO[] = [];
@@ -177,8 +186,18 @@ export class DebugPageObject extends ViewPageObject<DebugView> {
         const text: string = await variable.getText();
         const parts: string[] = text.split(":");
 
-        if (targetName.includes(parts[0])) {
-          result.push(await VariablePO.createVariablePO(variable));
+        if (targetName.length == 0 || targetName.includes(parts[0])) {
+          if (getChildrenElements) {
+            if (await variable.isExpandable()) {
+              await variable.expand();
+              await delay();
+              for await (const element of await variable.getChildren()) {
+                result.push(await VariablePO.createVariablePO(element));
+              }
+            }
+          } else {
+            result.push(await VariablePO.createVariablePO(variable));
+          }
         }
       }
 
@@ -198,8 +217,20 @@ export class DebugPageObject extends ViewPageObject<DebugView> {
     return result;
   }
 
+  async getLocalVariableValue(targetName: string): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Local", [targetName], true);
+
+    return result;
+  }
+
   async getPrivateVariables(targetName: string[]): Promise<VariablePO[]> {
     const result: VariablePO[] = await this.getVariables("Private", targetName);
+
+    return result;
+  }
+
+  async getPrivateVariableValue(targetName: string): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Private", [targetName], true);
 
     return result;
   }
@@ -210,9 +241,40 @@ export class DebugPageObject extends ViewPageObject<DebugView> {
     return result;
   }
 
+  async getPublicVariableValue(targetName: string): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Public", [targetName], true);
+
+    return result;
+  }
+
+
+  async getGlobalVariables(targetName: string[]): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Global", targetName);
+
+    return result;
+  }
+
+  async getGlobalVariableValue(targetName: string): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Global", [targetName], true);
+
+    return result;
+  }
+
+  async getModularVariables(targetName: string[]): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Modular", targetName);
+
+    return result;
+  }
+
+  async getModularVariableValue(targetName: string): Promise<VariablePO[]> {
+    const result: VariablePO[] = await this.getVariables("Modular", [targetName], true);
+
+    return result;
+  }
+
   async start(): Promise<void> {
     await this.view.start();
-    //await delay(DEFAULT_DELAY);
+    //await delay();
     //return Promise.resolve(true);
   }
 
@@ -237,6 +299,10 @@ export class VariablePO {
     const text: string[] = (await item.getText()).split(":");
     const type: string = await item.getTooltip();
 
+    if (text.length < 2) {
+      text.push("\n<empty>");
+    }
+
     return new VariablePO(text[0], text[1].substring(1), type); //.getText() inclui um \n inexistente no valor original
   }
 
@@ -244,5 +310,5 @@ export class VariablePO {
     readonly name: string,
     readonly value: string,
     readonly type: string
-  ) {}
+  ) { }
 }

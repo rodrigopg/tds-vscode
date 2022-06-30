@@ -1,5 +1,37 @@
 # Changelog
 
+# Versão [1.3.14]
+
+## Adicionar tratamento de expressões 4GL [DTCLIENT01-3338](https://jiraproducao.totvs.com.br/browse/DTCLIENT01-3338)
+
+- Adicionado tratamento na pré-avaliação de expressões 4GL.
+
+## Ao ocorrer uma exceção (error.log) o debugger no vscode cai com erro de sincronismo [DTCLIENT01-3344](https://jiraproducao.totvs.com.br/browse/DTCLIENT01-3344)
+
+- Ajustado a comunicação entre o _DA_ e o _appServer_ quando há exceção na aplicação 4GL/AdvPL.
+
+## Desfragmentação do RPO não remove histórico de aplicação de patches [#974](https://github.com/totvs/tds-vscode/issues/974)
+
+- Retornamos ao comportamento anterior pois o AppServer armazena uma cópia do patch no RPO, que é removido apenas junto ao histórico de aplicação.
+
+# Versão [1.3.13]
+
+## Function Inspector não carrega no appserver Harpia no Mac [#940](https://github.com/totvs/tds-vscode/issues/940)
+
+- Removido um processo interno que não funcionava adequadamente no Mac.
+
+## Melhorias
+
+- Identificação do tipo de servidor pelo ambiente conectado, quando servidor Harpia. [DTCLIENT01-3246](https://jiraproducao.totvs.com.br/browse/DTCLIENT01-3246)
+
+## Array 4GL dinamico mostra SIZE incorreto no DEBUG via VSCODE
+
+- Correção na determinação e apresentação do tamanho de listas (_arrays_). [DTCLIENT01-3149](https://jiraproducao.totvs.com.br/browse/DTCLIENT01-3239)
+
+## Não é possível validar token no Linux
+
+- Correção efetuada para validar corretamente o token. [DTCLIENT-3264](https://jiraproducao.totvs.com.br/browse/DTCLIENT01-3264)
+
 # Versão [1.3.12]
 
 ## Log de repositório com problemas no appserver Harpia

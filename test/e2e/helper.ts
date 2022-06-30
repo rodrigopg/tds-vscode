@@ -29,34 +29,25 @@ export const DELAY_MEDIUM = DEFAULT_DELAY * 3;
 export const DELAY_LONG = DEFAULT_DELAY * 5;
 
 function clearVscodeFiles(projectFolder: string): void {
-  const serversJsonFile: string = path.join(
-    projectFolder,
-    ".vscode",
-    "servers.json"
-  );
+  const folder: string = path.join(projectFolder, ".vscode");
+  const filesToRemove: string[] = [
+    path.join(folder, "launch.json"),
+    path.join(folder, "servers.json"),
+  ];
 
-  fse.ensureDirSync(path.dirname(serversJsonFile));
+  fse.ensureDirSync(path.dirname(folder));
 
-  if (fse.existsSync(serversJsonFile)) {
-    fse.removeSync(serversJsonFile);
-  }
-
-  const launchJsonFile: string = path.join(
-    projectFolder,
-    ".vscode",
-    "launch.json"
-  );
-  fse.ensureDirSync(path.dirname(serversJsonFile));
-
-  if (fse.existsSync(launchJsonFile)) {
-    fse.removeSync(launchJsonFile);
-  }
+  filesToRemove.forEach((file: string) => {
+    if (fse.existsSync(file)) {
+      fse.removeSync(file);
+    }
+  });
 
   const launch: any = {
     version: "0.2.0",
     configurations: [{}],
   };
-  fse.writeJSONSync(launchJsonFile, launch);
+  fse.writeJSONSync(filesToRemove[0], launch);
 }
 
 async function closeAllEditors(): Promise<void> {
@@ -101,7 +92,7 @@ export async function openProject(
 
   await VSBrowser.instance.openResources(PROJECT_FOLDER);
 
-  await delay(DEFAULT_DELAY);
+  await delay();
 
   //const settingsPO: SettingsPageObject = new SettingsPageObject();
   //await settingsPO.openView();
@@ -254,3 +245,44 @@ export async function fireContextMenuAction(
   await delay();
 }
 
+export function toAdvplType(variable: any): string {
+  if (variable.value == null) {
+    return "NIL";
+  } else if (variable.type == "N") {
+    return `${variable.value}`;
+  } else if (variable.type == "D") {
+    const d: Date = variable.value as Date;
+    var date = d.toJSON().slice(0, 10);
+    return `${date.slice(5, 7)}/${date.slice(8, 10)}/${date.slice(2, 4)}`;
+  } else if (variable.type == "C") {
+    return `"${variable.value}"`;
+  } else if (variable.type == "L") {
+    return variable.value ? ".T." : ".F.";
+  } else if (variable.type == "B") {
+    return variable.value;
+  }
+
+  return "NIL";
+}
+
+export function to4GLType(variable: any): string {
+  if (variable.value == null) {
+    return "NIL";
+  } else if (variable.type == "N" || variable.type == "INTEGER") {
+    return `${variable.value}`;
+  } else if (variable.type == "D") {
+    const d: Date = variable.value as Date;
+    var date = d.toJSON().slice(0, 10);
+    return `${date.slice(5, 7)}/${date.slice(8, 10)}/${date.slice(2, 4)}`;
+  } else if (variable.type == "C") {
+    return `"${variable.value}"`;
+  } else if (variable.type == "L") {
+    return variable.value ? ".T." : ".F.";
+  } else if (variable.type == "B") {
+    return variable.value;
+  } else if (variable.type == "U") {
+    return "NIL";
+  }
+
+  return "NIL";
+}

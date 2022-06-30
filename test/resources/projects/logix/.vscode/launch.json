@@ -2,15 +2,40 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"type": "totvs_tdsreplay_debug",
+			"type": "totvs_language_debug",
 			"request": "launch",
-			"name": "${1:%tds.package.tdsreplay.debug%}",
+			"name": "Smart Client Debug",
+			"program": "${command:AskForProgramName}",
+			"smartclientBin": "M:\\protheus\\smartClient\\20-3-0-2\\smartclient.exe",
 			"cwb": "${workspaceFolder}",
-			"tdsReplayFile": "",
-			"ignoreFiles": false,
-			"password": "",
-			"includeSources": "*",
-			"excludeSources": ""
+			"isMultiSession": true,
+			"enableTableSync": true,
+			"waitForAttach": 15000,
+			"logFile": "${workspaceFolder}/daplog.log"
 		}
-	]
+	],
+	"lastPrograms": [
+		{
+			"label": "sqlca.4gl"
+		},
+		{
+			"label": "global2a.4gl"
+		},
+		{
+			"label": "global2.4gl"
+		},
+		{
+			"label": "u_escolhenum"
+		},
+		{
+			"label": "SUP3760.4gl"
+		},
+		{
+			"label": "men1100"
+		},
+		{
+			"label": "MEN0210.4GL"
+		}
+	],
+	"lastProgramExecuted": "MEN0210.4GL"
 }

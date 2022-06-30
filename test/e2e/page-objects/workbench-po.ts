@@ -40,12 +40,12 @@ export class WorkbenchPageObject {
   }
 
   async isConnected(
-    LOCALHOST_NAME: string,
-    LOCALHOST_ENVIRONMENT: string
+    name: string,
+    environment: string
   ): Promise<boolean> {
     return (
       (await this.statusBar.statusBarWithText(
-        `${LOCALHOST_NAME} / ${LOCALHOST_ENVIRONMENT}`,
+        `${name} / ${environment}`,
         10000
       )) !== null
     );
@@ -156,6 +156,7 @@ export class WorkbenchPageObject {
       await this.testNotification(/Closing SmartClient/),
       await this.testNotification(/ExitCode=.*ExistStatus=.*/),
       await this.testNotification(/SmartClient closed/),
+      await this.testNotification(/TDS-DA being finalized/),
       await this.isDAFinished(),
     ]).then((value: boolean[]) => {
       return !value.includes(false);
@@ -199,6 +200,10 @@ export class WorkbenchPageObject {
   async isOneOrMoreFileHaveError(): Promise<boolean> {
     await this.testNotification(/\[FATAL\] Aborting/);
     return await this.testNotification(/One or more files have.*/);
+  }
+
+  async isCompileOk(): Promise<boolean> {
+    return ! (await this.isOneOrMoreFileHaveError());
   }
 
   async isHaveKey(): Promise<boolean> {
@@ -263,7 +268,7 @@ export class WorkbenchPageObject {
     return notification;
   }
 
-  async waitConnection(wait: number = MEDIUM_PROCESS_TIMEOUT): Promise<void> {
+  async waitAuthenticating(wait: number = MEDIUM_PROCESS_TIMEOUT): Promise<void> {
     await this.waitProcessFinish(/Authenticating user/, wait);
   }
 
@@ -271,6 +276,10 @@ export class WorkbenchPageObject {
     wait: number = MEDIUM_PROCESS_TIMEOUT
   ): Promise<Notification> {
     return await this.waitNotification(/Show table with compile results/, wait);
+  }
+
+  async waitConnection(wait: number = MEDIUM_PROCESS_TIMEOUT): Promise<void> {
+    await this.waitProcessFinish(/Authenticating user/, wait);
   }
 
   async waitReconnection(wait: number = MEDIUM_PROCESS_TIMEOUT): Promise<void> {
@@ -291,26 +300,6 @@ export class WorkbenchPageObject {
 
   async waitValidatingServer(): Promise<void> {
     await this.waitProcessFinish(/Validating server/);
-  }
-
-  async startConnection(): Promise<boolean> {
-    return await this.testNotification(/Starting connection to/);
-  }
-
-  async connectionServer(): Promise<boolean> {
-    return await this.testNotification(/Connection to the server/);
-  }
-
-  async startingUser(): Promise<boolean> {
-    return await this.testNotification(/Starting user/);
-  }
-
-  async authenticationFinished(): Promise<boolean> {
-    return await this.testNotification(/User '.*' authentication finished/);
-  }
-
-  async isAuthenticatedSuccessfully(): Promise<boolean> {
-    return await this.testNotification(/User authenticated successfully/);
   }
 
   async startConnection(): Promise<boolean> {
