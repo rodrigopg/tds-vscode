@@ -3,7 +3,6 @@
 *.vsix
 .editorconfig
 .vscode-test
-.vscode/mapa timestamp.txt
 ~/
 nls.*
 node_modules
@@ -12,13 +11,13 @@ out-test
 package-lock.json
 test-extension/
 test-resources/
-test/resources/**/.vscode/servers.json
-test/resources/**/.vscode/settings.json
-test/resources/**/.vscode/laucher.json
 out-test/
 *.dmp
 src/parser/4gl-parser.js
 notas.md
+syntaxes/build
+*.txt
+*.ppo
 test/**/no_git
 test/**/fw/**
-
+test/**/.vscode

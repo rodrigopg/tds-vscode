@@ -13,11 +13,18 @@
 		}
 	],
 	"search.exclude": {
-        "out": true // set this to false to include "out" folder in search results
-    },
+		"out": true // set this to false to include "out" folder in search results
+	},
 	"files.exclude": {
-        "out": false // set this to true to hide the "out" folder with the compiled JS files
-    },
+		"out": false // set this to true to hide the "out" folder with the compiled JS files
+	},
+	"typescript.tsc.autoDetect": "off",
+	"eslint.enable": false,
+	"[markdown]": {
+		"editor.formatOnSave": true,
+		"editor.formatOnPaste": true
+	},
+	"markdownlint.run": "onSave",
 	"totvsLanguageServer.welcomePage": false,
-	"typescript.tsc.autoDetect": "off"
+	"totvsLanguageServer.editor.linter.includes": "M:\\protheus\\includes;M:\\protheus\\includes_tlpp",
 }

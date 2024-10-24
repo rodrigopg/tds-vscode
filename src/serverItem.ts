@@ -1,7 +1,5 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
 import * as path from "path";
-import { changeSettings } from "./server/languageServerSettings";
 import serverProvider from "./serverItemProvider";
 
 const RESOURCE_FOLDER = path.join(__filename, "..", "..", "resources");
@@ -71,11 +69,8 @@ export class EnvSection extends vscode.TreeItem {
   constructor(
     public label: string,
     public readonly serverItemParent: ServerItem,
-    public collapsibleState: vscode.TreeItemCollapsibleState,
-    public readonly command?: vscode.Command,
-    public environments?: string[]
   ) {
-    super(label, collapsibleState);
+    super(label);
   }
 
   public get isCurrent(): boolean {
